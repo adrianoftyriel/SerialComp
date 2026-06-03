@@ -81,6 +81,7 @@ SerialCompEditor::SerialCompEditor(SerialCompProcessor& p)
     // child components (especially stageComponents[]) are fully constructed.
     // Calling it earlier would invoke resized() with null unique_ptrs → crash.
     setSize(EDITOR_W, EDITOR_H);
+}
 
 SerialCompEditor::~SerialCompEditor()
 {
