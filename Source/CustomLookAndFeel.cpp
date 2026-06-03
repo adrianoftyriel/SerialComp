@@ -26,12 +26,20 @@ void CustomLookAndFeel::drawRotarySlider(juce::Graphics& g,
                                           float startAngle, float endAngle,
                                           juce::Slider& /*slider*/)
 {
-    const float radius   = (float) juce::jmin(width / 2, height / 2) - 4.0f;
+    // Guard 1: zero/negative dimensions (host calls before first resized())
+    if (width <= 0 || height <= 0) return;
 
-    // Reaper (and some other hosts) call drawRotarySlider before the first
-    // resized(), passing width=0 / height=0.  A negative radius produces a
-    // degenerate path inside addArc / drawEllipse that crashes the renderer.
-    if (radius <= 0.0f) return;
+    // Guard 2: NaN/Inf in any angle argument — can arrive before SliderAttachment
+    // has written the initial value, making sliderPos = NaN propagate to angle,
+    // then to sin/cos, then to fillEllipse() which crashes the JUCE renderer.
+    if (!std::isfinite(sliderPos) || !std::isfinite(startAngle) || !std::isfinite(endAngle))
+        return;
+
+    const float radius   = static_cast<float>(juce::jmin(width, height)) * 0.5f - 4.0f;
+    if (radius < 4.0f) return;  // ensure knobRadius > stroke width
+
+    // Clamp sliderPos so subsequent sin/cos are always well-defined
+    sliderPos = juce::jlimit(0.0f, 1.0f, sliderPos);
 
     const float centreX  = (float) x + (float) width  * 0.5f;
     const float centreY  = (float) y + (float) height * 0.5f;
@@ -75,8 +83,11 @@ void CustomLookAndFeel::drawRotarySlider(juce::Graphics& g,
     // --- Pointer dot ---
     const float pointerLen    = knobRadius * 0.65f;
     const float pointerRadius = 3.0f;
-    float px = centreX + pointerLen * std::sin(angle);
-    float py = centreY - pointerLen * std::cos(angle);
+    const float px = centreX + pointerLen * std::sin(angle);
+    const float py = centreY - pointerLen * std::cos(angle);
+    // Guard 3: sin/cos of a clamped finite angle should always be finite, but
+    // belt-and-suspenders to prevent any degenerate path from crashing the renderer.
+    if (!std::isfinite(px) || !std::isfinite(py)) return;
     g.setColour(accent());
     g.fillEllipse(px - pointerRadius, py - pointerRadius,
                   pointerRadius * 2.0f, pointerRadius * 2.0f);
