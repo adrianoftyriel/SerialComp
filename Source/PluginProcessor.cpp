@@ -21,7 +21,7 @@ SerialCompProcessor::createParameterLayout()
         layout.add(std::make_unique<juce::AudioParameterBool>(
             juce::ParameterID(px + "enabled", 1),
             name + "Enabled",
-            i == 0));   // only Stage 1 enabled by default
+            i == 0));
 
         layout.add(std::make_unique<juce::AudioParameterChoice>(
             juce::ParameterID(px + "model", 1),
@@ -60,18 +60,6 @@ SerialCompProcessor::createParameterLayout()
             2.0f));
 
         layout.add(std::make_unique<juce::AudioParameterFloat>(
-            juce::ParameterID(px + "inputGain", 1),
-            name + "Input Gain",
-            juce::NormalisableRange<float>(-18.0f, 18.0f, 0.1f),
-            0.0f));
-
-        layout.add(std::make_unique<juce::AudioParameterFloat>(
-            juce::ParameterID(px + "makeupGain", 1),
-            name + "Makeup Gain",
-            juce::NormalisableRange<float>(-18.0f, 24.0f, 0.1f),
-            0.0f));
-
-        layout.add(std::make_unique<juce::AudioParameterFloat>(
             juce::ParameterID(px + "mix", 1),
             name + "Mix",
             juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f),
@@ -84,9 +72,15 @@ SerialCompProcessor::createParameterLayout()
         1, MAX_STAGES, 1));
 
     layout.add(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID("outputGain", 1),
-        "Output Gain",
+        juce::ParameterID("inputGain", 1),
+        "Input Gain",
         juce::NormalisableRange<float>(-18.0f, 18.0f, 0.1f),
+        0.0f));
+
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("makeupGain", 1),
+        "Makeup Gain",
+        juce::NormalisableRange<float>(-18.0f, 24.0f, 0.1f),
         0.0f));
 
     return layout;
@@ -101,8 +95,6 @@ SerialCompProcessor::SerialCompProcessor()
                          .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
       apvts(*this, nullptr, "SerialCompState", createParameterLayout())
 {
-    // Cache all raw-parameter pointers now, while we're on a non-RT thread
-    // and string operations are safe.  processBlock will only call ->load().
     cacheParamPointers();
 }
 
@@ -115,19 +107,18 @@ void SerialCompProcessor::cacheParamPointers()
     {
         auto px = "s" + juce::String(i) + "_";
         auto& p = stageParams[i];
-        p.enabled    = apvts.getRawParameterValue(px + "enabled");
-        p.model      = apvts.getRawParameterValue(px + "model");
-        p.threshold  = apvts.getRawParameterValue(px + "threshold");
-        p.ratio      = apvts.getRawParameterValue(px + "ratio");
-        p.attack     = apvts.getRawParameterValue(px + "attack");
-        p.release    = apvts.getRawParameterValue(px + "release");
-        p.knee       = apvts.getRawParameterValue(px + "knee");
-        p.inputGain  = apvts.getRawParameterValue(px + "inputGain");
-        p.makeupGain = apvts.getRawParameterValue(px + "makeupGain");
-        p.mix        = apvts.getRawParameterValue(px + "mix");
+        p.enabled   = apvts.getRawParameterValue(px + "enabled");
+        p.model     = apvts.getRawParameterValue(px + "model");
+        p.threshold = apvts.getRawParameterValue(px + "threshold");
+        p.ratio     = apvts.getRawParameterValue(px + "ratio");
+        p.attack    = apvts.getRawParameterValue(px + "attack");
+        p.release   = apvts.getRawParameterValue(px + "release");
+        p.knee      = apvts.getRawParameterValue(px + "knee");
+        p.mix       = apvts.getRawParameterValue(px + "mix");
     }
     numStagesParam  = apvts.getRawParameterValue("numStages");
-    outputGainParam = apvts.getRawParameterValue("outputGain");
+    inputGainParam  = apvts.getRawParameterValue("inputGain");
+    makeupGainParam = apvts.getRawParameterValue("makeupGain");
 }
 
 // ---------------------------------------------------------------------------
@@ -153,20 +144,18 @@ void SerialCompProcessor::syncStageParameters(int i)
     const auto& p = stageParams[i];
     auto& s = stages[i];
 
-    s.setEnabled   (p.enabled->load()    > 0.5f);
-    s.setModel     (static_cast<CompressorModel>(static_cast<int>(p.model->load())));
-    s.setThreshold (p.threshold->load());
-    s.setRatio     (p.ratio->load());
-    s.setAttack    (p.attack->load());
-    s.setRelease   (p.release->load());
-    s.setKnee      (p.knee->load());
-    s.setInputGain (p.inputGain->load());
-    s.setMakeupGain(p.makeupGain->load());
-    s.setMix       (p.mix->load());
+    s.setEnabled  (p.enabled->load()   > 0.5f);
+    s.setModel    (static_cast<CompressorModel>(static_cast<int>(p.model->load())));
+    s.setThreshold(p.threshold->load());
+    s.setRatio    (p.ratio->load());
+    s.setAttack   (p.attack->load());
+    s.setRelease  (p.release->load());
+    s.setKnee     (p.knee->load());
+    s.setMix      (p.mix->load());
 }
 
 // ---------------------------------------------------------------------------
-// processBlock – serial chain: each stage feeds the next
+// processBlock – global input gain → serial stage chain → global makeup gain
 // ---------------------------------------------------------------------------
 void SerialCompProcessor::processBlock(juce::AudioBuffer<float>& buffer,
                                         juce::MidiBuffer& /*midi*/)
@@ -176,20 +165,22 @@ void SerialCompProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     const int numSamples  = buffer.getNumSamples();
     const int numChannels = buffer.getNumChannels();
 
-    // Guard: some hosts call processBlock with empty buffers during scanning/init.
     if (numSamples == 0 || numChannels == 0) return;
 
     const int numStages = static_cast<int>(numStagesParam->load());
 
-    // Helper: mix channels to mono for waveform display
-    auto monoSample = [&](int s) -> float
-    {
+    auto monoSample = [&](int s) -> float {
         return numChannels >= 2
             ? (buffer.getSample(0, s) + buffer.getSample(1, s)) * 0.5f
             : buffer.getSample(0, s);
     };
 
-    // Capture raw input and measure input level
+    // --- Global input gain ---
+    const float inGain = juce::Decibels::decibelsToGain(inputGainParam->load());
+    if (!juce::approximatelyEqual(inGain, 1.0f))
+        buffer.applyGain(inGain);
+
+    // --- Capture input + measure input level ---
     float inputPeak = 0.0f;
     for (int s = 0; s < numSamples; s++)
     {
@@ -205,6 +196,7 @@ void SerialCompProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         inputLevelDB.store(juce::Decibels::gainToDecibels(inputEnvLinear, -96.0f));
     }
 
+    // --- Stage chain ---
     for (int i = 0; i < MAX_STAGES; i++)
     {
         syncStageParameters(i);
@@ -212,18 +204,16 @@ void SerialCompProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         if (i < numStages)
             stages[i].processBlock(buffer);
 
-        // Capture stage output for waveform display
         for (int s = 0; s < numSamples; s++)
             waveformStages[i].push(monoSample(s));
     }
 
-    // Master output gain
-    const float outGain = juce::Decibels::decibelsToGain(outputGainParam->load());
+    // --- Global makeup gain ---
+    const float mkGain = juce::Decibels::decibelsToGain(makeupGainParam->load());
+    if (!juce::approximatelyEqual(mkGain, 1.0f))
+        buffer.applyGain(mkGain);
 
-    if (!juce::approximatelyEqual(outGain, 1.0f))
-        buffer.applyGain(outGain);
-
-    // Measure output level (after master gain)
+    // --- Measure output level (after makeup gain) ---
     {
         float outputPeak = 0.0f;
         for (int ch = 0; ch < numChannels; ++ch)
@@ -239,7 +229,7 @@ void SerialCompProcessor::processBlock(juce::AudioBuffer<float>& buffer,
 }
 
 // ---------------------------------------------------------------------------
-// Metering accessor (called from UI thread)
+// Metering accessor (UI thread)
 // ---------------------------------------------------------------------------
 float SerialCompProcessor::getStageGainReduction(int stage) const
 {

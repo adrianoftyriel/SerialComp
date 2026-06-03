@@ -23,13 +23,13 @@ private:
     juce::ToggleButton enableButton { "ON" };
     juce::ComboBox     modelBox;
 
-    // 8 rotary knobs
+    // 6 rotary knobs (input/makeup gain moved to global controls)
     juce::Slider thresholdSlider, ratioSlider, attackSlider, releaseSlider;
-    juce::Slider kneeSlider, inputGainSlider, makeupGainSlider, mixSlider;
+    juce::Slider kneeSlider, mixSlider;
 
     // Labels below each knob
     juce::Label thresholdLabel, ratioLabel, attackLabel, releaseLabel;
-    juce::Label kneeLabel, inputGainLabel, makeupGainLabel, mixLabel;
+    juce::Label kneeLabel, mixLabel;
     juce::Label stageLabel;
 
     GainReductionMeter grMeter;
@@ -39,7 +39,7 @@ private:
     using ComboBoxAttachment = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
 
     std::unique_ptr<SliderAttachment>   thresholdAtt, ratioAtt, attackAtt, releaseAtt;
-    std::unique_ptr<SliderAttachment>   kneeAtt, inputGainAtt, makeupGainAtt, mixAtt;
+    std::unique_ptr<SliderAttachment>   kneeAtt, mixAtt;
     std::unique_ptr<ButtonAttachment>   enableAtt;
     std::unique_ptr<ComboBoxAttachment> modelAtt;
 

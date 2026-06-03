@@ -24,14 +24,17 @@ private:
     std::unique_ptr<StageComponent> stageComponents[MAX_STAGES];
 
     // Header controls
-    juce::Label    titleLabel;
-    juce::Label    stagesLabel;
-    juce::Slider   numStagesSlider;     // 1–5 stepper
-    juce::Label    outputLabel;
-    juce::Slider   outputGainSlider;
+    juce::Label  titleLabel;
+    juce::Label  stagesLabel;
+    juce::Slider numStagesSlider;
 
-    // Waveform display (bottom strip)
-    WaveformDisplay waveformDisplay;
+    // Global input gain (left of header)
+    juce::Label  inputGainLabel;
+    juce::Slider inputGainSlider;
+
+    // Global makeup gain (right of header)
+    juce::Label  makeupGainLabel;
+    juce::Slider makeupGainSlider;
 
     // Input / output level meters (flank the stage panels)
     LevelMeter inputMeter;
@@ -39,9 +42,15 @@ private:
     juce::Label inputMeterLabel;
     juce::Label outputMeterLabel;
 
+    // Volume history display (collapsible bottom panel)
+    VolumeHistoryDisplay historyDisplay;
+    juce::TextButton     historyToggleButton;
+    bool historyVisible = true;
+
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
     std::unique_ptr<SliderAttachment> numStagesAtt;
-    std::unique_ptr<SliderAttachment> outputGainAtt;
+    std::unique_ptr<SliderAttachment> inputGainAtt;
+    std::unique_ptr<SliderAttachment> makeupGainAtt;
 
     void timerCallback() override;
     void updateStageVisibility();

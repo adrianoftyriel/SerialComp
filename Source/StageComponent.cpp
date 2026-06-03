@@ -35,38 +35,34 @@ StageComponent::StageComponent(juce::AudioProcessorValueTreeState& apvts_, int i
     stageLabel.setFont(juce::Font(10.0f, juce::Font::bold));
     addAndMakeVisible(stageLabel);
 
-    // --- Knobs ---
+    // --- 6 knobs ---
     setupSlider(thresholdSlider, thresholdLabel, "THR");
     setupSlider(ratioSlider,     ratioLabel,     "RATIO");
     setupSlider(attackSlider,    attackLabel,    "ATK");
     setupSlider(releaseSlider,   releaseLabel,   "REL");
     setupSlider(kneeSlider,      kneeLabel,      "KNEE");
-    setupSlider(inputGainSlider, inputGainLabel, "INPUT");
-    setupSlider(makeupGainSlider,makeupGainLabel,"MAKEUP");
     setupSlider(mixSlider,       mixLabel,       "MIX");
 
     // Custom display formats
     thresholdSlider.textFromValueFunction = [](double v) { return juce::String(v, 1) + " dB"; };
     ratioSlider.textFromValueFunction     = [](double v) { return juce::String(v, 1) + ":1"; };
     attackSlider.textFromValueFunction    = [](double v) { return juce::String(v, 2) + " ms"; };
-    releaseSlider.textFromValueFunction   = [](double v) { return juce::String(v < 1000.0 ? v : v / 1000.0, 2)
-                                                                        + (v < 1000.0 ? " ms" : " s"); };
-    kneeSlider.textFromValueFunction      = [](double v) { return juce::String(v, 1) + " dB"; };
-    inputGainSlider.textFromValueFunction = [](double v) { return juce::String(v, 1) + " dB"; };
-    makeupGainSlider.textFromValueFunction= [](double v) { return juce::String(v, 1) + " dB"; };
-    mixSlider.textFromValueFunction       = [](double v) { return juce::String(juce::roundToInt(v * 100.0)) + "%"; };
+    releaseSlider.textFromValueFunction   = [](double v) {
+        return juce::String(v < 1000.0 ? v : v / 1000.0, 2) + (v < 1000.0 ? " ms" : " s");
+    };
+    kneeSlider.textFromValueFunction = [](double v) { return juce::String(v, 1) + " dB"; };
+    mixSlider.textFromValueFunction  = [](double v) {
+        return juce::String(juce::roundToInt(v * 100.0)) + "%";
+    };
 
     // Attachments
-    thresholdAtt  = std::make_unique<SliderAttachment>(apvts, pid("threshold"),  thresholdSlider);
-    ratioAtt      = std::make_unique<SliderAttachment>(apvts, pid("ratio"),      ratioSlider);
-    attackAtt     = std::make_unique<SliderAttachment>(apvts, pid("attack"),     attackSlider);
-    releaseAtt    = std::make_unique<SliderAttachment>(apvts, pid("release"),    releaseSlider);
-    kneeAtt       = std::make_unique<SliderAttachment>(apvts, pid("knee"),       kneeSlider);
-    inputGainAtt  = std::make_unique<SliderAttachment>(apvts, pid("inputGain"),  inputGainSlider);
-    makeupGainAtt = std::make_unique<SliderAttachment>(apvts, pid("makeupGain"), makeupGainSlider);
-    mixAtt        = std::make_unique<SliderAttachment>(apvts, pid("mix"),        mixSlider);
+    thresholdAtt = std::make_unique<SliderAttachment>(apvts, pid("threshold"), thresholdSlider);
+    ratioAtt     = std::make_unique<SliderAttachment>(apvts, pid("ratio"),     ratioSlider);
+    attackAtt    = std::make_unique<SliderAttachment>(apvts, pid("attack"),    attackSlider);
+    releaseAtt   = std::make_unique<SliderAttachment>(apvts, pid("release"),   releaseSlider);
+    kneeAtt      = std::make_unique<SliderAttachment>(apvts, pid("knee"),      kneeSlider);
+    mixAtt       = std::make_unique<SliderAttachment>(apvts, pid("mix"),       mixSlider);
 
-    // GR meter
     addAndMakeVisible(grMeter);
 }
 
@@ -96,12 +92,11 @@ void StageComponent::applyModelDefaults()
             p->setValueNotifyingHost(p->getNormalisableRange().convertTo0to1(value));
     };
 
-    setParam(pid("threshold"),  def.threshold);
-    setParam(pid("ratio"),      def.ratio);
-    setParam(pid("attack"),     def.attackMs);
-    setParam(pid("release"),    def.releaseMs);
-    setParam(pid("knee"),       def.kneeDB);
-    setParam(pid("makeupGain"), def.makeupGainDB);
+    setParam(pid("threshold"), def.threshold);
+    setParam(pid("ratio"),     def.ratio);
+    setParam(pid("attack"),    def.attackMs);
+    setParam(pid("release"),   def.releaseMs);
+    setParam(pid("knee"),      def.kneeDB);
 }
 
 void StageComponent::setActive(bool active)
@@ -125,12 +120,10 @@ void StageComponent::paint(juce::Graphics& g)
 {
     auto bounds = getLocalBounds().toFloat();
 
-    // Panel background
     g.setColour(CustomLookAndFeel::panelBg());
     g.fillRoundedRectangle(bounds, 5.0f);
 
-    // Model-accent top strip
-    int modelIdx  = modelBox.getSelectedId() - 1;
+    int modelIdx = modelBox.getSelectedId() - 1;
     if (modelIdx >= 0 && modelIdx < static_cast<int>(CompressorModel::NumModels))
     {
         auto accent = getModelColour(static_cast<CompressorModel>(modelIdx));
@@ -138,7 +131,6 @@ void StageComponent::paint(juce::Graphics& g)
         g.fillRoundedRectangle(bounds.removeFromTop(3.0f), 5.0f);
     }
 
-    // Border
     g.setColour(CustomLookAndFeel::panelBorder());
     g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(0.5f), 5.0f, 1.0f);
 }
@@ -147,63 +139,57 @@ void StageComponent::resized()
 {
     auto bounds = getLocalBounds().reduced(6, 4);
 
-    // --- Header row ---
+    // Header row
     auto headerRow = bounds.removeFromTop(22);
     stageLabel.setBounds(headerRow.removeFromLeft(60));
     enableButton.setBounds(headerRow.removeFromRight(34).withSizeKeepingCentre(34, 18));
 
     bounds.removeFromTop(2);
 
-    // --- Model selector ---
+    // Model selector
     modelBox.setBounds(bounds.removeFromTop(22));
     bounds.removeFromTop(4);
 
-    // --- GR meter (right strip) ---
+    // GR meter (right strip)
     auto grStrip = bounds.removeFromRight(20);
     grMeter.setBounds(grStrip);
-
     bounds.removeFromRight(3);
 
-    // --- 8 knobs in 2 columns × 4 rows ---
-    const int knobAreaW  = bounds.getWidth();
-    const int knobAreaH  = bounds.getHeight();
-    const int cols       = 2;
-    const int rows       = 4;
-    const int cellW      = knobAreaW / cols;
-    const int cellH      = knobAreaH / rows;
-    const int textBoxH   = 14;   // height reserved for the value readout
-    const int labelH     = 12;   // height of the parameter-name label
-    const int gap        = 2;    // gap between text box and label
-    // Knob sized so that knob + textBox + gap + label fits within the cell.
-    const int knobSize   = juce::jmin(cellW - 8,
-                                      cellH - textBoxH - gap - labelH - 4);
-    const int totalH     = knobSize + textBoxH + gap + labelH;
+    // 6 knobs in 2 columns × 3 rows
+    const int knobAreaW = bounds.getWidth();
+    const int knobAreaH = bounds.getHeight();
+    const int cols      = 2;
+    const int rows      = 3;
+    const int cellW     = knobAreaW / cols;
+    const int cellH     = knobAreaH / rows;
+    const int textBoxH  = 14;
+    const int labelH    = 12;
+    const int gap       = 2;
+    const int knobSize  = juce::jmin(cellW - 8, cellH - textBoxH - gap - labelH - 4);
+    const int totalH    = knobSize + textBoxH + gap + labelH;
 
     juce::Slider* sliders[] = {
         &thresholdSlider, &ratioSlider,
         &attackSlider,    &releaseSlider,
-        &kneeSlider,      &mixSlider,
-        &inputGainSlider, &makeupGainSlider
+        &kneeSlider,      &mixSlider
     };
     juce::Label* labels[] = {
         &thresholdLabel, &ratioLabel,
         &attackLabel,    &releaseLabel,
-        &kneeLabel,      &mixLabel,
-        &inputGainLabel, &makeupGainLabel
+        &kneeLabel,      &mixLabel
     };
 
-    for (int i = 0; i < 8; i++)
+    for (int i = 0; i < 6; i++)
     {
         int col     = i % cols;
         int row     = i / cols;
         int centreX = bounds.getX() + col * cellW + cellW / 2;
         int startY  = bounds.getY() + row * cellH + (cellH - totalH) / 2;
 
-        // Slider bounds include the knob area plus the text-box strip at the bottom.
         sliders[i]->setBounds(centreX - knobSize / 2, startY,
                               knobSize, knobSize + textBoxH);
-        // Label sits directly below the text box, not inside it.
-        labels[i]->setBounds(centreX - knobSize / 2, startY + knobSize + textBoxH + gap,
+        labels[i]->setBounds(centreX - knobSize / 2,
+                             startY + knobSize + textBoxH + gap,
                              knobSize, labelH);
     }
 }

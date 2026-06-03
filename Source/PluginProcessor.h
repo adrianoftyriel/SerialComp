@@ -36,7 +36,7 @@ public:
     float getInputLevelDB()  const { return inputLevelDB.load();  }
     float getOutputLevelDB() const { return outputLevelDB.load(); }
 
-    // Waveform capture – written on audio thread, read on UI thread
+    // Audio capture – written on audio thread, read on UI thread
     WaveformBuffer waveformInput;
     WaveformBuffer waveformStages[MAX_STAGES];
 
@@ -48,30 +48,27 @@ private:
     CompressorStage stages[MAX_STAGES];
 
     // -----------------------------------------------------------------------
-    // Cached raw-parameter pointers.
-    // Populated once in the constructor so processBlock never touches the
-    // APVTS hash-map (which involves juce::String heap allocation) on the
-    // audio thread.  Reading via ->load() is always lock-free.
+    // Cached raw-parameter pointers (populated once, non-RT; read-only via
+    // ->load() on the audio thread — always lock-free).
     // -----------------------------------------------------------------------
     struct StageParamPtrs
     {
-        std::atomic<float>* enabled    = nullptr;
-        std::atomic<float>* model      = nullptr;
-        std::atomic<float>* threshold  = nullptr;
-        std::atomic<float>* ratio      = nullptr;
-        std::atomic<float>* attack     = nullptr;
-        std::atomic<float>* release    = nullptr;
-        std::atomic<float>* knee       = nullptr;
-        std::atomic<float>* inputGain  = nullptr;
-        std::atomic<float>* makeupGain = nullptr;
-        std::atomic<float>* mix        = nullptr;
+        std::atomic<float>* enabled   = nullptr;
+        std::atomic<float>* model     = nullptr;
+        std::atomic<float>* threshold = nullptr;
+        std::atomic<float>* ratio     = nullptr;
+        std::atomic<float>* attack    = nullptr;
+        std::atomic<float>* release   = nullptr;
+        std::atomic<float>* knee      = nullptr;
+        std::atomic<float>* mix       = nullptr;
     };
-    StageParamPtrs        stageParams[MAX_STAGES];
-    std::atomic<float>*   numStagesParam  = nullptr;
-    std::atomic<float>*   outputGainParam = nullptr;
+    StageParamPtrs      stageParams[MAX_STAGES];
+    std::atomic<float>* numStagesParam  = nullptr;
+    std::atomic<float>* inputGainParam  = nullptr;   // global pre-chain input gain
+    std::atomic<float>* makeupGainParam = nullptr;   // global post-chain makeup gain
 
     void cacheParamPointers();
-    void syncStageParameters(int stageIdx);     // zero allocation, uses cache
+    void syncStageParameters(int stageIdx);
 
     // Ballistic envelope state (audio thread only)
     float inputEnvLinear  = 0.0f;

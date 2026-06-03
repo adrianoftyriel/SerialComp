@@ -26,9 +26,8 @@ public:
         if (fraction > 0.0f)
         {
             float barH = b.getHeight() * fraction;
-            auto barR  = b.removeFromTop(barH);
+            auto barR  = juce::Rectangle<float>(b.getX(), b.getY(), b.getWidth(), barH);
 
-            // Gradient: green → yellow → red
             juce::ColourGradient grad(
                 juce::Colour(0xFFBB2222), barR.getTopLeft(),
                 juce::Colour(0xFF44BB44), barR.getBottomLeft(),
@@ -43,20 +42,25 @@ public:
         g.setColour(juce::Colour(0xFF333340));
         g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(0.5f), 3.0f, 1.0f);
 
-        // Tick marks at -3, -6, -12 dB GR
-        g.setColour(juce::Colour(0x55FFFFFF));
-        g.setFont(8.0f);
-        for (float tick : { 3.0f, 6.0f, 12.0f })
+        // Tick marks with dB labels at 3, 6, 12 dB GR
+        g.setFont(juce::Font(7.0f));
+        constexpr float ticks[] = { 3.0f, 6.0f, 12.0f };
+        for (float tick : ticks)
         {
-            float y = (tick / maxDB) * getHeight();
-            g.drawHorizontalLine(static_cast<int>(y), 0.0f, static_cast<float>(getWidth()));
+            int y = static_cast<int>((tick / maxDB) * getHeight());
+            g.setColour(juce::Colour(0x66FFFFFF));
+            g.drawHorizontalLine(y, 0.0f, static_cast<float>(getWidth()));
+            g.setColour(juce::Colour(0xAAFFFFFF));
+            g.drawText(juce::String(static_cast<int>(tick)),
+                       1, y - 7, getWidth() - 2, 7,
+                       juce::Justification::centredRight);
         }
 
-        // Numeric readout
-        if (gainReductionDB > 0.3f)
+        // Numeric readout (active level)
+        if (gainReductionDB > 0.5f)
         {
             g.setColour(juce::Colours::white.withAlpha(0.85f));
-            g.setFont(juce::Font(8.5f, juce::Font::bold));
+            g.setFont(juce::Font(8.0f, juce::Font::bold));
             g.drawText(juce::String(gainReductionDB, 1),
                        getLocalBounds(), juce::Justification::centredBottom);
         }
