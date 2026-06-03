@@ -97,6 +97,11 @@ void SerialCompEditor::timerCallback()
     for (int i = 0; i < MAX_STAGES; i++)
         stageComponents[i]->setGainReduction(processor.getStageGainReduction(i));
 
+    // Keep the waveform display in sync with the host's sample rate.
+    const double sr = processor.getSampleRate();
+    if (sr > 0.0)
+        waveformDisplay.setSampleRate(sr);
+
     int numStages = static_cast<int>(numStagesSlider.getValue());
     waveformDisplay.setNumActiveStages(numStages);
     waveformDisplay.repaint();

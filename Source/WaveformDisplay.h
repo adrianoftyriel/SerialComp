@@ -8,7 +8,8 @@
 class WaveformBuffer
 {
 public:
-    static constexpr int SIZE = 8192;  // must be power of 2
+    // 2^19 = 524 288 samples ≈ 11.9 s at 44 100 Hz / 10.9 s at 48 000 Hz.
+    static constexpr int SIZE = 524288;
 
     void push(float sample) noexcept
     {
@@ -16,14 +17,32 @@ public:
         writePos.fetch_add(1, std::memory_order_release);
     }
 
-    // Fills `out` with the most recent `out.size()` samples (oldest → newest).
-    void read(std::vector<float>& out) const noexcept
+    // Reads the most-recent windowSamples from the buffer, decimated to
+    // out.size() evenly-spaced points (oldest → newest).
+    void readDecimated(std::vector<float>& out, int windowSamples) const noexcept
     {
-        const int n   = static_cast<int>(out.size());
-        const int end = static_cast<int>(writePos.load(std::memory_order_acquire));
-        const int s   = end - n;
+        const int n = static_cast<int>(out.size());
+        if (n == 0) return;
+
+        const int end    = static_cast<int>(writePos.load(std::memory_order_acquire));
+        const int avail  = juce::jmin(end, SIZE);          // samples currently in buffer
+        const int window = juce::jmin(windowSamples, avail); // cap to what's available
+
+        if (window == 0)
+        {
+            std::fill(out.begin(), out.end(), 0.0f);
+            return;
+        }
+
+        const int start = end - window;
         for (int i = 0; i < n; i++)
-            out[static_cast<size_t>(i)] = buf[(s + i) & (SIZE - 1)];
+        {
+            // Map display index i → source sample index via even decimation.
+            const int srcOff = static_cast<int>(
+                static_cast<float>(i) * static_cast<float>(window)
+                / static_cast<float>(n));
+            out[static_cast<size_t>(i)] = buf[(start + srcOff) & (SIZE - 1)];
+        }
     }
 
 private:
@@ -39,26 +58,26 @@ private:
 class WaveformDisplay : public juce::Component
 {
 public:
-    static constexpr int MAX_STAGES   = 5;
-    static constexpr int DISPLAY_PTS  = 1024;
+    static constexpr int MAX_STAGES  = 5;
+    static constexpr int DISPLAY_PTS = 1024;
 
     WaveformDisplay()
     {
         samples.resize(static_cast<size_t>(DISPLAY_PTS));
     }
 
-    // Called once by the editor after construction.
     void setSources(WaveformBuffer* input,
                     WaveformBuffer* stages[MAX_STAGES],
                     int numStages)
     {
-        inputSrc      = input;
+        inputSrc    = input;
         for (int i = 0; i < MAX_STAGES; i++)
             stageSrc[i] = stages[i];
-        numActiveSt  = numStages;
+        numActiveSt = numStages;
     }
 
     void setNumActiveStages(int n) { numActiveSt = n; }
+    void setSampleRate(double sr)  { sampleRate  = sr; }
 
     void setStageColour(int idx, juce::Colour c)
     {
@@ -76,7 +95,7 @@ public:
         // Label
         g.setColour(juce::Colour(0xFF44445A));
         g.setFont(9.0f);
-        g.drawText("WAVEFORM  (gray = pre-compress, coloured = per-stage output)",
+        g.drawText("WAVEFORM  (gray = pre-compress, coloured = per-stage output)  |  10 s window",
                    bounds.reduced(6.0f, 2.0f).toNearestInt(),
                    juce::Justification::topLeft);
 
@@ -89,16 +108,18 @@ public:
 
         if (inputSrc == nullptr) return;
 
+        const int windowSamples = static_cast<int>(sampleRate * 10.0);
+
         // Draw input waveform in gray (back layer)
-        inputSrc->read(samples);
+        inputSrc->readDecimated(samples, windowSamples);
         g.setColour(juce::Colour(0xFF4A4A5A));
         drawWave(g, waveBounds, 1.5f);
 
-        // Draw each active stage output (front layers, thinner)
+        // Draw each active stage output (front layers)
         for (int i = 0; i < numActiveSt && i < MAX_STAGES; i++)
         {
             if (stageSrc[i] == nullptr) continue;
-            stageSrc[i]->read(samples);
+            stageSrc[i]->readDecimated(samples, windowSamples);
             g.setColour(stageColours[i].withAlpha(0.80f));
             drawWave(g, waveBounds, 1.2f);
         }
@@ -109,9 +130,10 @@ public:
     }
 
 private:
-    WaveformBuffer* inputSrc         = nullptr;
+    WaveformBuffer* inputSrc            = nullptr;
     WaveformBuffer* stageSrc[MAX_STAGES] = {};
-    int numActiveSt                  = 0;
+    int    numActiveSt = 0;
+    double sampleRate  = 44100.0;
     std::vector<float> samples;
 
     juce::Colour stageColours[MAX_STAGES] = {
@@ -126,10 +148,12 @@ private:
                   juce::Rectangle<float> b,
                   float thickness) const
     {
-        const int   n   = DISPLAY_PTS;
-        const float w   = b.getWidth();
-        const float cy  = b.getCentreY();
-        const float h2  = b.getHeight() * 0.44f;
+        if (b.getWidth() <= 0.0f || b.getHeight() <= 0.0f) return;
+
+        const int   n  = DISPLAY_PTS;
+        const float w  = b.getWidth();
+        const float cy = b.getCentreY();
+        const float h2 = b.getHeight() * 0.44f;
 
         juce::Path path;
         bool first = true;

@@ -171,8 +171,13 @@ void StageComponent::resized()
     const int rows       = 4;
     const int cellW      = knobAreaW / cols;
     const int cellH      = knobAreaH / rows;
-    const int knobSize   = juce::jmin(cellW, cellH) - 8;
-    const int labelH     = 12;
+    const int textBoxH   = 14;   // height reserved for the value readout
+    const int labelH     = 12;   // height of the parameter-name label
+    const int gap        = 2;    // gap between text box and label
+    // Knob sized so that knob + textBox + gap + label fits within the cell.
+    const int knobSize   = juce::jmin(cellW - 8,
+                                      cellH - textBoxH - gap - labelH - 4);
+    const int totalH     = knobSize + textBoxH + gap + labelH;
 
     juce::Slider* sliders[] = {
         &thresholdSlider, &ratioSlider,
@@ -189,12 +194,16 @@ void StageComponent::resized()
 
     for (int i = 0; i < 8; i++)
     {
-        int col = i % cols;
-        int row = i / cols;
-        int cx  = bounds.getX() + col * cellW + cellW / 2;
-        int cy  = bounds.getY() + row * cellH + (cellH - knobSize - labelH) / 2;
+        int col     = i % cols;
+        int row     = i / cols;
+        int centreX = bounds.getX() + col * cellW + cellW / 2;
+        int startY  = bounds.getY() + row * cellH + (cellH - totalH) / 2;
 
-        sliders[i]->setBounds(cx - knobSize / 2, cy, knobSize, knobSize + 14);
-        labels[i]->setBounds(cx - knobSize / 2, cy + knobSize + 2, knobSize, labelH);
+        // Slider bounds include the knob area plus the text-box strip at the bottom.
+        sliders[i]->setBounds(centreX - knobSize / 2, startY,
+                              knobSize, knobSize + textBoxH);
+        // Label sits directly below the text box, not inside it.
+        labels[i]->setBounds(centreX - knobSize / 2, startY + knobSize + textBoxH + gap,
+                             knobSize, labelH);
     }
 }
