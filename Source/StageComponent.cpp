@@ -383,9 +383,6 @@ void StageComponent::paint(juce::Graphics& g)
             const float pivotY  = vuRect.getBottom() - 4.0f;
             const float arcR    = juce::jmin(vuRect.getWidth() * 0.42f,
                                              vuRect.getHeight() * 0.90f);
-            const float startAng = juce::MathConstants<float>::pi * 1.25f; // ~225 deg (left)
-            const float endAng   = juce::MathConstants<float>::pi * 1.75f; // ~315 deg (right) —
-            // Actually use the spec values: 3.93 to 5.50 radians
             const float arcStart = 3.93f;
             const float arcEnd   = 5.50f;
 

@@ -2,6 +2,10 @@
 #include "PluginEditor.h"
 #include "CustomLookAndFeel.h"
 
+#if JUCE_STANDALONE_APPLICATION
+ #include <juce_audio_plugin_client/Standalone/juce_StandaloneFilterWindow.h>
+#endif
+
 // ---------------------------------------------------------------------------
 // Layout constants
 // ---------------------------------------------------------------------------
@@ -292,27 +296,7 @@ void SerialCompEditor::resized()
 void SerialCompEditor::showAudioSettings()
 {
 #if JUCE_STANDALONE_APPLICATION
-    auto* holder = juce::StandalonePluginHolder::getInstance();
-    if (holder == nullptr) return;
-
-    auto* selector = new juce::AudioDeviceSelectorComponent(
-        holder->deviceManager,
-        0, 2,    // min / max input channels
-        0, 2,    // min / max output channels
-        false,   // show MIDI input selector
-        false,   // show MIDI output selector
-        true,    // show channels as stereo pairs
-        false);  // hide advanced options with button
-
-    selector->setSize(500, 420);
-
-    juce::DialogWindow::LaunchOptions opts;
-    opts.content.setOwned(selector);
-    opts.dialogTitle                = "Audio Device Settings";
-    opts.dialogBackgroundColour     = juce::Colour(0xFF1C1C24);
-    opts.escapeKeyTriggersCloseButton = true;
-    opts.useNativeTitleBar          = false;
-    opts.resizable                  = true;
-    opts.launchAsync();
+    if (auto* holder = juce::StandalonePluginHolder::getInstance())
+        holder->showAudioSettingsDialog();
 #endif
 }
