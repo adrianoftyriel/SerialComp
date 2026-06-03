@@ -24,7 +24,7 @@ void CustomLookAndFeel::drawRotarySlider(juce::Graphics& g,
                                           int x, int y, int width, int height,
                                           float sliderPos,
                                           float startAngle, float endAngle,
-                                          juce::Slider& /*slider*/)
+                                          juce::Slider& slider)
 {
     // Guard 1: zero/negative dimensions (host calls before first resized())
     if (width <= 0 || height <= 0) return;
@@ -51,7 +51,7 @@ void CustomLookAndFeel::drawRotarySlider(juce::Graphics& g,
                      radius * 2.0f, radius * 2.0f,
                      startAngle, endAngle, true);
     juce::PathStrokeType stroke(3.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded);
-    g.setColour(knobTrack());
+    g.setColour(slider.findColour(juce::Slider::rotarySliderOutlineColourId));
     g.strokePath(trackPath, stroke);
 
     // --- Value arc ---
@@ -61,7 +61,7 @@ void CustomLookAndFeel::drawRotarySlider(juce::Graphics& g,
         valuePath.addArc(centreX - radius, centreY - radius,
                          radius * 2.0f, radius * 2.0f,
                          startAngle, angle, true);
-        g.setColour(accent());
+        g.setColour(slider.findColour(juce::Slider::rotarySliderFillColourId));
         g.strokePath(valuePath, stroke);
     }
 
@@ -88,7 +88,7 @@ void CustomLookAndFeel::drawRotarySlider(juce::Graphics& g,
     // Guard 3: sin/cos of a clamped finite angle should always be finite, but
     // belt-and-suspenders to prevent any degenerate path from crashing the renderer.
     if (!std::isfinite(px) || !std::isfinite(py)) return;
-    g.setColour(accent());
+    g.setColour(slider.findColour(juce::Slider::rotarySliderFillColourId));
     g.fillEllipse(px - pointerRadius, py - pointerRadius,
                   pointerRadius * 2.0f, pointerRadius * 2.0f);
 }

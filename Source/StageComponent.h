@@ -43,6 +43,9 @@ private:
     std::unique_ptr<ButtonAttachment>   enableAtt;
     std::unique_ptr<ComboBoxAttachment> modelAtt;
 
+    float currentGainReductionDB = 0.0f;
+    void updateModelAppearance();
+
     void setupSlider(juce::Slider& s, juce::Label& lbl, const juce::String& text);
     void applyModelDefaults();
     juce::String pid(const juce::String& param) const;
