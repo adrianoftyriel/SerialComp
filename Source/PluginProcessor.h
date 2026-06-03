@@ -33,10 +33,16 @@ public:
 
     juce::AudioProcessorValueTreeState apvts;
     float getStageGainReduction(int stage) const;
+    float getInputLevelDB()  const { return inputLevelDB.load();  }
+    float getOutputLevelDB() const { return outputLevelDB.load(); }
 
     // Waveform capture – written on audio thread, read on UI thread
     WaveformBuffer waveformInput;
     WaveformBuffer waveformStages[MAX_STAGES];
+
+    // Level metering – written on audio thread, read on UI thread
+    std::atomic<float> inputLevelDB  { -96.0f };
+    std::atomic<float> outputLevelDB { -96.0f };
 
 private:
     CompressorStage stages[MAX_STAGES];
@@ -66,6 +72,10 @@ private:
 
     void cacheParamPointers();
     void syncStageParameters(int stageIdx);     // zero allocation, uses cache
+
+    // Ballistic envelope state (audio thread only)
+    float inputEnvLinear  = 0.0f;
+    float outputEnvLinear = 0.0f;
 
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 

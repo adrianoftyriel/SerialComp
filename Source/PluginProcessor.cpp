@@ -189,9 +189,21 @@ void SerialCompProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             : buffer.getSample(0, s);
     };
 
-    // Capture raw input
+    // Capture raw input and measure input level
+    float inputPeak = 0.0f;
     for (int s = 0; s < numSamples; s++)
+    {
         waveformInput.push(monoSample(s));
+        for (int ch = 0; ch < numChannels; ++ch)
+            inputPeak = juce::jmax(inputPeak, std::abs(buffer.getSample(ch, s)));
+    }
+    {
+        constexpr float kAtt = 0.10f, kRel = 0.97f;
+        inputEnvLinear = inputPeak > inputEnvLinear
+            ? kAtt * inputPeak + (1.0f - kAtt) * inputEnvLinear
+            : kRel * inputEnvLinear;
+        inputLevelDB.store(juce::Decibels::gainToDecibels(inputEnvLinear, -96.0f));
+    }
 
     for (int i = 0; i < MAX_STAGES; i++)
     {
@@ -210,6 +222,20 @@ void SerialCompProcessor::processBlock(juce::AudioBuffer<float>& buffer,
 
     if (!juce::approximatelyEqual(outGain, 1.0f))
         buffer.applyGain(outGain);
+
+    // Measure output level (after master gain)
+    {
+        float outputPeak = 0.0f;
+        for (int ch = 0; ch < numChannels; ++ch)
+            for (int s = 0; s < numSamples; ++s)
+                outputPeak = juce::jmax(outputPeak, std::abs(buffer.getSample(ch, s)));
+
+        constexpr float kAtt = 0.10f, kRel = 0.97f;
+        outputEnvLinear = outputPeak > outputEnvLinear
+            ? kAtt * outputPeak + (1.0f - kAtt) * outputEnvLinear
+            : kRel * outputEnvLinear;
+        outputLevelDB.store(juce::Decibels::gainToDecibels(outputEnvLinear, -96.0f));
+    }
 }
 
 // ---------------------------------------------------------------------------

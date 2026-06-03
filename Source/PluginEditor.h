@@ -4,6 +4,7 @@
 #include "StageComponent.h"
 #include "CustomLookAndFeel.h"
 #include "WaveformDisplay.h"
+#include "LevelMeter.h"
 
 class SerialCompEditor : public juce::AudioProcessorEditor,
                          private juce::Timer
@@ -31,6 +32,12 @@ private:
 
     // Waveform display (bottom strip)
     WaveformDisplay waveformDisplay;
+
+    // Input / output level meters (flank the stage panels)
+    LevelMeter inputMeter;
+    LevelMeter outputMeter;
+    juce::Label inputMeterLabel;
+    juce::Label outputMeterLabel;
 
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
     std::unique_ptr<SliderAttachment> numStagesAtt;

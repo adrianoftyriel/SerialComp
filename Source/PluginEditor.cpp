@@ -2,14 +2,18 @@
 #include "PluginEditor.h"
 #include "CustomLookAndFeel.h"
 
-static constexpr int HEADER_H   = 52;
-static constexpr int STAGE_W    = 210;
-static constexpr int STAGE_GAP  = 4;
-static constexpr int PADDING    = 8;
-static constexpr int STAGE_H    = 420;
-static constexpr int WAVE_H     = 90;   // waveform strip height
-static constexpr int EDITOR_W   = PADDING * 2 + MAX_STAGES * STAGE_W + (MAX_STAGES - 1) * STAGE_GAP;
-static constexpr int EDITOR_H   = HEADER_H + STAGE_H + WAVE_H + PADDING * 3;
+static constexpr int HEADER_H       = 52;
+static constexpr int STAGE_W        = 210;
+static constexpr int STAGE_GAP      = 4;
+static constexpr int PADDING        = 8;
+static constexpr int STAGE_H        = 420;
+static constexpr int WAVE_H         = 90;   // waveform strip height
+static constexpr int LEVEL_METER_W  = 20;   // input/output level meter width
+static constexpr int EDITOR_W       = PADDING * 2
+                                    + (LEVEL_METER_W + PADDING) * 2
+                                    + MAX_STAGES * STAGE_W
+                                    + (MAX_STAGES - 1) * STAGE_GAP;
+static constexpr int EDITOR_H       = HEADER_H + STAGE_H + WAVE_H + PADDING * 3;
 
 SerialCompEditor::SerialCompEditor(SerialCompProcessor& p)
     : AudioProcessorEditor(&p), processor(p)
@@ -64,6 +68,20 @@ SerialCompEditor::SerialCompEditor(SerialCompProcessor& p)
     addAndMakeVisible(outputGainSlider);
     outputGainAtt = std::make_unique<SliderAttachment>(processor.apvts, "outputGain", outputGainSlider);
 
+    // --- Input / output level meters ---
+    addAndMakeVisible(inputMeter);
+    addAndMakeVisible(outputMeter);
+
+    auto setupMeterLabel = [&](juce::Label& lbl, const juce::String& text) {
+        lbl.setText(text, juce::dontSendNotification);
+        lbl.setFont(juce::Font(9.0f, juce::Font::bold));
+        lbl.setColour(juce::Label::textColourId, CustomLookAndFeel::textSecond());
+        lbl.setJustificationType(juce::Justification::centred);
+        addAndMakeVisible(lbl);
+    };
+    setupMeterLabel(inputMeterLabel,  "IN");
+    setupMeterLabel(outputMeterLabel, "OUT");
+
     // --- Waveform display ---
     // Wire up the processor's WaveformBuffer objects as read sources.
     {
@@ -105,6 +123,13 @@ void SerialCompEditor::timerCallback()
     int numStages = static_cast<int>(numStagesSlider.getValue());
     waveformDisplay.setNumActiveStages(numStages);
     waveformDisplay.repaint();
+
+    // Update level meters
+    inputMeter.setLevel(processor.getInputLevelDB());
+    inputMeter.advancePeakHold();
+
+    outputMeter.setLevel(processor.getOutputLevelDB());
+    outputMeter.advancePeakHold();
 }
 
 // ---------------------------------------------------------------------------
@@ -165,17 +190,30 @@ void SerialCompEditor::resized()
     outputGainSlider.setBounds(outArea);
 
     // Stage panels (below header, equal-width columns)
-    int stageTop   = HEADER_H + PADDING;
-    int stageAvailW = getWidth() - PADDING * 2 - (MAX_STAGES - 1) * STAGE_GAP;
-    int stageW     = stageAvailW / MAX_STAGES;
+    // Level meters flank the stage columns on left and right.
+    int stageTop    = HEADER_H + PADDING;
+    int stageLeft   = PADDING + LEVEL_METER_W + PADDING;  // left edge of stage 0
+    int stageRight  = getWidth() - PADDING - LEVEL_METER_W - PADDING; // right edge of stage 4
+    int stageAvailW = stageRight - stageLeft - (MAX_STAGES - 1) * STAGE_GAP;
+    int stageW      = stageAvailW / MAX_STAGES;
 
     for (int i = 0; i < MAX_STAGES; i++)
     {
-        int x = PADDING + i * (stageW + STAGE_GAP);
+        int x = stageLeft + i * (stageW + STAGE_GAP);
         stageComponents[i]->setBounds(x, stageTop, stageW, STAGE_H);
     }
 
-    // Waveform display strip (below stages)
+    // Input level meter (left of Stage 1)
+    const int labelH = 14;
+    inputMeterLabel.setBounds(PADDING, stageTop, LEVEL_METER_W, labelH);
+    inputMeter.setBounds(PADDING, stageTop + labelH, LEVEL_METER_W, STAGE_H - labelH);
+
+    // Output level meter (right of Stage 5)
+    int outMeterX = getWidth() - PADDING - LEVEL_METER_W;
+    outputMeterLabel.setBounds(outMeterX, stageTop, LEVEL_METER_W, labelH);
+    outputMeter.setBounds(outMeterX, stageTop + labelH, LEVEL_METER_W, STAGE_H - labelH);
+
+    // Waveform display strip (below stages, full width)
     int waveTop = stageTop + STAGE_H + PADDING;
     waveformDisplay.setBounds(PADDING, waveTop,
                               getWidth() - PADDING * 2, WAVE_H);
