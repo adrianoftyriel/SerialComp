@@ -15,7 +15,6 @@ SerialCompEditor::SerialCompEditor(SerialCompProcessor& p)
     : AudioProcessorEditor(&p), processor(p)
 {
     setLookAndFeel(&laf);
-    setSize(EDITOR_W, EDITOR_H);
     setResizable(false, false);
 
     // --- Stage panels ---
@@ -77,7 +76,11 @@ SerialCompEditor::SerialCompEditor(SerialCompProcessor& p)
 
     updateStageVisibility();
     startTimerHz(30);   // 30 Hz meter + waveform refresh
-}
+
+    // setSize() triggers resized() synchronously, so it must come after all
+    // child components (especially stageComponents[]) are fully constructed.
+    // Calling it earlier would invoke resized() with null unique_ptrs → crash.
+    setSize(EDITOR_W, EDITOR_H);
 
 SerialCompEditor::~SerialCompEditor()
 {
