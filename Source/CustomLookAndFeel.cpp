@@ -27,6 +27,12 @@ void CustomLookAndFeel::drawRotarySlider(juce::Graphics& g,
                                           juce::Slider& /*slider*/)
 {
     const float radius   = (float) juce::jmin(width / 2, height / 2) - 4.0f;
+
+    // Reaper (and some other hosts) call drawRotarySlider before the first
+    // resized(), passing width=0 / height=0.  A negative radius produces a
+    // degenerate path inside addArc / drawEllipse that crashes the renderer.
+    if (radius <= 0.0f) return;
+
     const float centreX  = (float) x + (float) width  * 0.5f;
     const float centreY  = (float) y + (float) height * 0.5f;
     const float angle    = startAngle + sliderPos * (endAngle - startAngle);
