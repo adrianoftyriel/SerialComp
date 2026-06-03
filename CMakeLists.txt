@@ -17,9 +17,9 @@ FetchContent_MakeAvailable(JUCE)
 
 juce_add_plugin(SerialComp
     VERSION                     "1.0.0"
-    COMPANY_NAME                "CanOpsAudio"
-    BUNDLE_ID                   "com.canops.serialcomp"
-    PLUGIN_MANUFACTURER_CODE    "CnAu"
+    COMPANY_NAME                "Sask Valley Tech Audio"
+    BUNDLE_ID                   "com.svt.serialcomp"
+    PLUGIN_MANUFACTURER_CODE    "SVTA"
     PLUGIN_CODE                 "SRLC"
     FORMATS                     VST3 AU Standalone
     PRODUCT_NAME                "SerialComp"

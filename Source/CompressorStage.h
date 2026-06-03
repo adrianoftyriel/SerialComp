@@ -41,6 +41,9 @@ private:
     float makeupGainDB          = 0.0f;
     float mix                   = 1.0f;
 
+    // Pre-allocated dry buffer (avoids heap alloc in the audio thread)
+    juce::AudioBuffer<float> dryBuffer;
+
     // Envelope state – per channel (max 2)
     float fastEnv[2]  = { 0.0f, 0.0f };
     float slowEnv[2]  = { 0.0f, 0.0f };

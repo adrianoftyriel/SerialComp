@@ -6,10 +6,12 @@ CompressorStage::CompressorStage()
     updateCoefficients();
 }
 
-void CompressorStage::prepare(double sr, int /*samplesPerBlock*/)
+void CompressorStage::prepare(double sr, int samplesPerBlock)
 {
     sampleRate = sr;
     prepared   = true;
+    // Pre-allocate so processBlock never calls new/delete on the audio thread.
+    dryBuffer.setSize(2, samplesPerBlock, false, true, false);
     reset();
     updateCoefficients();
 }
@@ -115,8 +117,9 @@ void CompressorStage::processBlock(juce::AudioBuffer<float>& buffer)
     const float inGainLin    = juce::Decibels::decibelsToGain(inputGainDB);
     const float makeupLin    = juce::Decibels::decibelsToGain(makeupGainDB);
 
-    // Save dry signal (pre any gain) for parallel mix
-    juce::AudioBuffer<float> dryBuffer(numChannels, numSamples);
+    // Use pre-allocated dry buffer – reallocates only if host changed block size
+    // (avoidReallocating=true keeps the existing allocation when it already fits)
+    dryBuffer.setSize(numChannels, numSamples, false, false, true);
     for (int ch = 0; ch < numChannels; ch++)
         dryBuffer.copyFrom(ch, 0, buffer, ch, 0, numSamples);
 

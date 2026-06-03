@@ -150,17 +150,25 @@ void SerialCompProcessor::processBlock(juce::AudioBuffer<float>& buffer,
 {
     juce::ScopedNoDenormals noDenormals;
 
-    const int numStages = static_cast<int>(apvts.getRawParameterValue("numStages")->load());
-    const int numSamples = buffer.getNumSamples();
+    const int numSamples  = buffer.getNumSamples();
+    const int numChannels = buffer.getNumChannels();
 
-    // Capture raw input (mix L+R to mono for display)
-    for (int s = 0; s < numSamples; s++)
+    // Guard: some hosts call processBlock with empty buffers during scanning/init.
+    if (numSamples == 0 || numChannels == 0) return;
+
+    const int numStages = static_cast<int>(apvts.getRawParameterValue("numStages")->load());
+
+    // Helper: mix channels to mono for waveform display
+    auto monoSample = [&](int s) -> float
     {
-        float sample = buffer.getNumChannels() > 1
+        return numChannels >= 2
             ? (buffer.getSample(0, s) + buffer.getSample(1, s)) * 0.5f
             : buffer.getSample(0, s);
-        waveformInput.push(sample);
-    }
+    };
+
+    // Capture raw input
+    for (int s = 0; s < numSamples; s++)
+        waveformInput.push(monoSample(s));
 
     for (int i = 0; i < MAX_STAGES; i++)
     {
@@ -171,12 +179,7 @@ void SerialCompProcessor::processBlock(juce::AudioBuffer<float>& buffer,
 
         // Capture stage output for waveform display
         for (int s = 0; s < numSamples; s++)
-        {
-            float sample = buffer.getNumChannels() > 1
-                ? (buffer.getSample(0, s) + buffer.getSample(1, s)) * 0.5f
-                : buffer.getSample(0, s);
-            waveformStages[i].push(sample);
-        }
+            waveformStages[i].push(monoSample(s));
     }
 
     // Master output gain
