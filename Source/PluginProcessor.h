@@ -9,7 +9,6 @@ public:
     SerialCompProcessor();
     ~SerialCompProcessor() override = default;
 
-    // AudioProcessor interface
     void prepareToPlay(double sampleRate, int samplesPerBlock) override;
     void releaseResources() override;
     void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
@@ -35,14 +34,39 @@ public:
     juce::AudioProcessorValueTreeState apvts;
     float getStageGainReduction(int stage) const;
 
-    // Waveform capture buffers – written on audio thread, read on UI thread
+    // Waveform capture – written on audio thread, read on UI thread
     WaveformBuffer waveformInput;
     WaveformBuffer waveformStages[MAX_STAGES];
 
 private:
     CompressorStage stages[MAX_STAGES];
 
-    void syncStageParameters(int stageIdx);
+    // -----------------------------------------------------------------------
+    // Cached raw-parameter pointers.
+    // Populated once in the constructor so processBlock never touches the
+    // APVTS hash-map (which involves juce::String heap allocation) on the
+    // audio thread.  Reading via ->load() is always lock-free.
+    // -----------------------------------------------------------------------
+    struct StageParamPtrs
+    {
+        std::atomic<float>* enabled    = nullptr;
+        std::atomic<float>* model      = nullptr;
+        std::atomic<float>* threshold  = nullptr;
+        std::atomic<float>* ratio      = nullptr;
+        std::atomic<float>* attack     = nullptr;
+        std::atomic<float>* release    = nullptr;
+        std::atomic<float>* knee       = nullptr;
+        std::atomic<float>* inputGain  = nullptr;
+        std::atomic<float>* makeupGain = nullptr;
+        std::atomic<float>* mix        = nullptr;
+    };
+    StageParamPtrs        stageParams[MAX_STAGES];
+    std::atomic<float>*   numStagesParam  = nullptr;
+    std::atomic<float>*   outputGainParam = nullptr;
+
+    void cacheParamPointers();
+    void syncStageParameters(int stageIdx);     // zero allocation, uses cache
+
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SerialCompProcessor)

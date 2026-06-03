@@ -101,6 +101,33 @@ SerialCompProcessor::SerialCompProcessor()
                          .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
       apvts(*this, nullptr, "SerialCompState", createParameterLayout())
 {
+    // Cache all raw-parameter pointers now, while we're on a non-RT thread
+    // and string operations are safe.  processBlock will only call ->load().
+    cacheParamPointers();
+}
+
+// ---------------------------------------------------------------------------
+// Cache APVTS parameter pointers (called once from constructor, non-RT)
+// ---------------------------------------------------------------------------
+void SerialCompProcessor::cacheParamPointers()
+{
+    for (int i = 0; i < MAX_STAGES; i++)
+    {
+        auto px = "s" + juce::String(i) + "_";
+        auto& p = stageParams[i];
+        p.enabled    = apvts.getRawParameterValue(px + "enabled");
+        p.model      = apvts.getRawParameterValue(px + "model");
+        p.threshold  = apvts.getRawParameterValue(px + "threshold");
+        p.ratio      = apvts.getRawParameterValue(px + "ratio");
+        p.attack     = apvts.getRawParameterValue(px + "attack");
+        p.release    = apvts.getRawParameterValue(px + "release");
+        p.knee       = apvts.getRawParameterValue(px + "knee");
+        p.inputGain  = apvts.getRawParameterValue(px + "inputGain");
+        p.makeupGain = apvts.getRawParameterValue(px + "makeupGain");
+        p.mix        = apvts.getRawParameterValue(px + "mix");
+    }
+    numStagesParam  = apvts.getRawParameterValue("numStages");
+    outputGainParam = apvts.getRawParameterValue("outputGain");
 }
 
 // ---------------------------------------------------------------------------
@@ -119,27 +146,23 @@ void SerialCompProcessor::releaseResources()
 }
 
 // ---------------------------------------------------------------------------
-// Sync APVTS → CompressorStage (called once per block, on audio thread)
+// Sync APVTS → CompressorStage  (zero allocation – uses cached pointers)
 // ---------------------------------------------------------------------------
 void SerialCompProcessor::syncStageParameters(int i)
 {
-    const juce::String px = "s" + juce::String(i) + "_";
+    const auto& p = stageParams[i];
     auto& s = stages[i];
 
-    auto load = [&](const juce::String& id) -> float {
-        return apvts.getRawParameterValue(id)->load();
-    };
-
-    s.setEnabled   (load(px + "enabled") > 0.5f);
-    s.setModel     (static_cast<CompressorModel>(static_cast<int>(load(px + "model"))));
-    s.setThreshold (load(px + "threshold"));
-    s.setRatio     (load(px + "ratio"));
-    s.setAttack    (load(px + "attack"));
-    s.setRelease   (load(px + "release"));
-    s.setKnee      (load(px + "knee"));
-    s.setInputGain (load(px + "inputGain"));
-    s.setMakeupGain(load(px + "makeupGain"));
-    s.setMix       (load(px + "mix"));
+    s.setEnabled   (p.enabled->load()    > 0.5f);
+    s.setModel     (static_cast<CompressorModel>(static_cast<int>(p.model->load())));
+    s.setThreshold (p.threshold->load());
+    s.setRatio     (p.ratio->load());
+    s.setAttack    (p.attack->load());
+    s.setRelease   (p.release->load());
+    s.setKnee      (p.knee->load());
+    s.setInputGain (p.inputGain->load());
+    s.setMakeupGain(p.makeupGain->load());
+    s.setMix       (p.mix->load());
 }
 
 // ---------------------------------------------------------------------------
@@ -156,7 +179,7 @@ void SerialCompProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     // Guard: some hosts call processBlock with empty buffers during scanning/init.
     if (numSamples == 0 || numChannels == 0) return;
 
-    const int numStages = static_cast<int>(apvts.getRawParameterValue("numStages")->load());
+    const int numStages = static_cast<int>(numStagesParam->load());
 
     // Helper: mix channels to mono for waveform display
     auto monoSample = [&](int s) -> float
@@ -183,8 +206,7 @@ void SerialCompProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     }
 
     // Master output gain
-    const float outGain = juce::Decibels::decibelsToGain(
-        apvts.getRawParameterValue("outputGain")->load());
+    const float outGain = juce::Decibels::decibelsToGain(outputGainParam->load());
 
     if (!juce::approximatelyEqual(outGain, 1.0f))
         buffer.applyGain(outGain);

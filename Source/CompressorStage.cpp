@@ -33,12 +33,14 @@ void CompressorStage::setModel(CompressorModel m)
 
 void CompressorStage::setAttack(float ms)
 {
+    if (ms == attackMs) return;   // avoid redundant exp() calls every block
     attackMs = ms;
     updateCoefficients();
 }
 
 void CompressorStage::setRelease(float ms)
 {
+    if (ms == releaseMs) return;
     releaseMs = ms;
     updateCoefficients();
 }
