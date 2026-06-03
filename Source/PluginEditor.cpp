@@ -113,6 +113,14 @@ SerialCompEditor::SerialCompEditor(SerialCompProcessor& p)
     }
     addAndMakeVisible(historyDisplay);
 
+    // --- Audio settings button (standalone only) ---
+#if JUCE_STANDALONE_APPLICATION
+    audioSettingsButton.setColour(juce::TextButton::buttonColourId,  juce::Colour(0xFF252530));
+    audioSettingsButton.setColour(juce::TextButton::textColourOffId, CustomLookAndFeel::textSecond());
+    audioSettingsButton.onClick = [this] { showAudioSettings(); };
+    addAndMakeVisible(audioSettingsButton);
+#endif
+
     // --- History toggle button ---
     historyToggleButton.setButtonText(juce::CharPointer_UTF8 ("\xe2\x96\xbc  VOLUME HISTORY"));
     historyToggleButton.setColour(juce::TextButton::buttonColourId,   juce::Colour(0xFF18181E));
@@ -229,6 +237,13 @@ void SerialCompEditor::resized()
     makeupGainLabel.setBounds(mkArea.removeFromTop(14));
     makeupGainSlider.setBounds(mkArea);
 
+    // Audio settings button — standalone only, to the right of makeup gain
+#if JUCE_STANDALONE_APPLICATION
+    header.removeFromRight(8);
+    audioSettingsButton.setBounds(
+        header.removeFromRight(70).withSizeKeepingCentre(70, 20));
+#endif
+
     // --- Stage panel row ---
     const int stageTop   = HEADER_H + PADDING;
     const int stageLeft  = PADDING + LEVEL_METER_W + PADDING;
@@ -266,4 +281,38 @@ void SerialCompEditor::resized()
         historyDisplay.setBounds(PADDING, histTop,
                                  getWidth() - PADDING * 2, HISTORY_H);
     }
+}
+
+// ---------------------------------------------------------------------------
+// Audio device settings (standalone only)
+// Opens JUCE's AudioDeviceSelectorComponent which exposes sample rate,
+// bit depth, buffer size, and device selection in a single dialog.
+// Guarded by JUCE_STANDALONE_APPLICATION so it compiles clean for VST3/AU.
+// ---------------------------------------------------------------------------
+void SerialCompEditor::showAudioSettings()
+{
+#if JUCE_STANDALONE_APPLICATION
+    auto* holder = juce::StandalonePluginHolder::getInstance();
+    if (holder == nullptr) return;
+
+    auto* selector = new juce::AudioDeviceSelectorComponent(
+        holder->deviceManager,
+        0, 2,    // min / max input channels
+        0, 2,    // min / max output channels
+        false,   // show MIDI input selector
+        false,   // show MIDI output selector
+        true,    // show channels as stereo pairs
+        false);  // hide advanced options with button
+
+    selector->setSize(500, 420);
+
+    juce::DialogWindow::LaunchOptions opts;
+    opts.content.setOwned(selector);
+    opts.dialogTitle                = "Audio Device Settings";
+    opts.dialogBackgroundColour     = juce::Colour(0xFF1C1C24);
+    opts.escapeKeyTriggersCloseButton = true;
+    opts.useNativeTitleBar          = false;
+    opts.resizable                  = true;
+    opts.launchAsync();
+#endif
 }

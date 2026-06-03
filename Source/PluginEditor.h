@@ -47,6 +47,10 @@ private:
     juce::TextButton     historyToggleButton;
     bool historyVisible = true;
 
+    // Standalone-only: audio device settings (sample rate, bit depth, buffer)
+    juce::TextButton audioSettingsButton { "AUDIO" };
+    void showAudioSettings();
+
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
     std::unique_ptr<SliderAttachment> numStagesAtt;
     std::unique_ptr<SliderAttachment> inputGainAtt;
