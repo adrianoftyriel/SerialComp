@@ -182,6 +182,33 @@ void StageComponent::applyModelDefaults()
     releaseSlider  .setValue(d.releaseMs,         juce::dontSendNotification);
     satSlider      .setValue(d.saturationDefault, juce::dontSendNotification);
     mixSlider      .setValue(d.mix,               juce::dontSendNotification);
+
+    // For models with hidden controls, lock them to authentic fixed values
+    switch (model)
+    {
+        case CompressorModel::Model1176:
+            // 1176 has no threshold knob — INPUT gain drives compression;
+            // fix threshold at a sensible point, mix = 100% (no parallel blend)
+            thresholdSlider.setValue(-20.0, juce::dontSendNotification);
+            mixSlider      .setValue(1.0,   juce::dontSendNotification);
+            break;
+        case CompressorModel::ModelLA2A:
+            // Optical: ratio/attack/release are program-dependent — fix them
+            ratioSlider  .setValue(3.5,   juce::dontSendNotification); // ~3:1 compress
+            attackSlider .setValue(10.0,  juce::dontSendNotification); // slow optical attack
+            releaseSlider.setValue(500.0, juce::dontSendNotification); // slow opto release
+            mixSlider    .setValue(1.0,   juce::dontSendNotification);
+            break;
+        case CompressorModel::ModelDBX160:
+            // VCA: attack/release are automatic in the hardware
+            attackSlider .setValue(0.1,  juce::dontSendNotification); // near-instant
+            releaseSlider.setValue(80.0, juce::dontSendNotification); // fast auto
+            satSlider    .setValue(0.1,  juce::dontSendNotification); // clean
+            mixSlider    .setValue(1.0,  juce::dontSendNotification);
+            break;
+        default:
+            break;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -199,22 +226,22 @@ void StageComponent::updateModelAppearance()
     switch (model)
     {
         case CompressorModel::Model1176:
-            texts = { "INPUT", "RATIO", "ATTACK", "RELEASE", "INPUT", "OUTPUT" };
+            texts = { "THR", "RATIO", "ATTACK", "RELEASE", "INPUT", "MIX" };
             break;
         case CompressorModel::ModelLA2A:
-            texts = { "PEAK RED.", "RATIO", "ATTACK", "RELEASE", "DRIVE", "GAIN" };
+            texts = { "PEAK RED.", "RATIO", "ATTACK", "RELEASE", "DRIVE", "MIX" };
             break;
         case CompressorModel::ModelDestressor:
-            texts = { "THRESH", "RATIO", "ATK", "REL", "SAT", "MIX" };
+            texts = { "THRESH", "RATIO", "ATK", "REL", "INPUT", "MIX" };
             break;
         case CompressorModel::ModelDBX160:
-            texts = { "THRESHOLD", "RATIO", "ATTACK", "RELEASE", "SAT", "MIX" };
+            texts = { "THRESHOLD", "COMP", "ATTACK", "RELEASE", "SAT", "MIX" };
             break;
         case CompressorModel::ModelNeve:
-            texts = { "THRESHOLD", "RATIO", "ATTACK", "RECOVERY", "SAT", "MIX" };
+            texts = { "THRESHOLD", "RATIO", "ATK TIME", "RECOVERY", "DRIVE", "MIX" };
             break;
         case CompressorModel::ModelSSL:
-            texts = { "THRESHOLD", "RATIO", "ATTACK", "RELEASE", "SAT", "MIX" };
+            texts = { "THRESHOLD", "RATIO", "ATTACK", "RELEASE", "DRIVE", "MIX" };
             break;
         case CompressorModel::ModelManual:
         default:
@@ -228,13 +255,16 @@ void StageComponent::updateModelAppearance()
     releaseLabel  .setText(texts.rel,   juce::dontSendNotification);
     mixLabel      .setText(texts.mix,   juce::dontSendNotification);
 
-    // SAT label special names
+    // SAT label: matches what's visible on the real hardware
     switch (model)
     {
         case CompressorModel::Model1176:
+        case CompressorModel::ModelDestressor:
             satLabel.setText("INPUT", juce::dontSendNotification);
             break;
         case CompressorModel::ModelLA2A:
+        case CompressorModel::ModelNeve:
+        case CompressorModel::ModelSSL:
             satLabel.setText("DRIVE", juce::dontSendNotification);
             break;
         default:
@@ -825,102 +855,81 @@ void StageComponent::resized()
         lbl.setBounds(centreX - ks / 2, startY + ks + textBoxH + gap, ks, labelH);
     };
 
+    // Reset all to visible before per-model visibility overrides
+    for (auto* s : { &thresholdSlider, &ratioSlider, &attackSlider,
+                     &releaseSlider,   &satSlider,   &mixSlider })
+        s->setVisible(true);
+    for (auto* l : { &thresholdLabel, &ratioLabel, &attackLabel,
+                     &releaseLabel,   &satLabel,   &mixLabel })
+        l->setVisible(true);
+    grMeter.setVisible(true);
+
     switch (model)
     {
         // ------------------------------------------------------------------
         case CompressorModel::Model1176:
         {
-            ratioSlider.setVisible(false);
-            ratioLabel .setVisible(false);
-            grMeter    .setVisible(true);
-            grMeter    .setHorizontal(true);
+            // Real 1176 has: INPUT (=SAT), ATTACK, RELEASE, RATIO buttons
+            // No threshold knob, no mix knob
+            thresholdSlider.setVisible(false); thresholdLabel.setVisible(false);
+            ratioSlider    .setVisible(false); ratioLabel    .setVisible(false);
+            mixSlider      .setVisible(false); mixLabel      .setVisible(false);
+            grMeter.setVisible(true);
+            grMeter.setHorizontal(true);
+            numRatioButtons = 5;
 
-            // Large SAT (INPUT) knob — top centre, ks=90
-            const int satKS  = 90;
-            const int satY   = 40;
+            // Large SAT (INPUT) knob — centred, ks=95
+            const int satKS = 95;
             placeKnob(satSlider, satLabel,
-                      W / 2 - satKS / 2, satY, satKS, satKS + textBoxH + gap + labelH, satKS);
+                      W / 2 - satKS / 2, 38, satKS, satKS + textBoxH + gap + labelH, satKS);
 
-            // Attack + Release side by side, ks=60, y=145
-            const int smallKS  = 60;
-            const int smallY   = 145;
-            const int smallCellW = (W - pad * 2) / 2;
-            placeKnob(attackSlider,  attackLabel,
-                      pad,              smallY, smallCellW, smallKS + textBoxH + gap + labelH, smallKS);
-            placeKnob(releaseSlider, releaseLabel,
-                      pad + smallCellW, smallY, smallCellW, smallKS + textBoxH + gap + labelH, smallKS);
+            // Attack + Release side-by-side, ks=68, y=152
+            const int smKS = 68;
+            const int smCW = (W - pad * 2) / 2;
+            const int smCH = smKS + textBoxH + gap + labelH;
+            placeKnob(attackSlider,  attackLabel,  pad,        152, smCW, smCH, smKS);
+            placeKnob(releaseSlider, releaseLabel, pad + smCW, 152, smCW, smCH, smKS);
 
-            // 5 ratio buttons: y=218..250
+            // 5 ratio buttons: y=254..296 (42px tall)
             {
-                numRatioButtons = 5;
                 const int btnAreaX = pad;
-                const int btnAreaY = 218;
+                const int btnAreaY = 254;
                 const int btnAreaW = W - pad * 2;
-                const int btnH     = 32;
-                const int btnW     = (btnAreaW - 4 * 2) / 5; // 2px gaps between
+                const int btnH     = 40;
+                const int btnW     = (btnAreaW - 4 * 2) / 5;
                 for (int i = 0; i < 5; i++)
-                {
-                    ratioButtonRects[i] = {
-                        btnAreaX + i * (btnW + 2),
-                        btnAreaY,
-                        btnW,
-                        btnH
-                    };
-                }
+                    ratioButtonRects[i] = { btnAreaX + i * (btnW + 2), btnAreaY, btnW, btnH };
             }
 
-            // Threshold knob — centre, ks=70, y=260
-            const int thrKS = 70;
-            const int thrY  = 260;
-            placeKnob(thresholdSlider, thresholdLabel,
-                      W / 2 - thrKS / 2, thrY, thrKS, thrKS + textBoxH + gap + labelH, thrKS);
-
-            // Mix knob — small, bottom right
-            const int mixKS = 48;
-            placeKnob(mixSlider, mixLabel,
-                      W - pad - mixKS, H - 60, mixKS, mixKS + textBoxH + gap + labelH, mixKS);
-
-            // GR meter: horizontal strip near bottom
-            grMeter.setBounds(pad, H - 50, W - pad * 2, 42);
+            // GR meter: horizontal strip at bottom (100px)
+            grMeter.setBounds(pad, H - 104, W - pad * 2, 96);
             break;
         }
 
         // ------------------------------------------------------------------
         case CompressorModel::ModelLA2A:
         {
-            ratioSlider.setVisible(true);
-            ratioLabel .setVisible(true);
-            grMeter    .setVisible(false);
-            grMeter    .setBounds(0, -100, 1, 1);
+            // Real LA-2A has: PEAK REDUCTION (threshold) + GAIN (our DRIVE/SAT)
+            // No separate attack, release, or ratio knobs — optical element handles all
+            attackSlider .setVisible(false); attackLabel .setVisible(false);
+            releaseSlider.setVisible(false); releaseLabel.setVisible(false);
+            ratioSlider  .setVisible(false); ratioLabel  .setVisible(false);
+            mixSlider    .setVisible(false); mixLabel    .setVisible(false);
+            grMeter.setVisible(false);   // VU needle drawn in paint()
+            grMeter.setBounds(0, -100, 1, 1);
             numRatioButtons = 0;
 
-            // Top 2 small knobs: ATK left, REL right — y=42..118 (ks=60)
-            const int smKS   = 60;
-            const int smCW   = (W - pad * 2) / 2;
-            const int smY    = 42;
-            const int smCH   = smKS + textBoxH + gap + labelH;
-            placeKnob(attackSlider,  attackLabel,  pad,        smY, smCW, smCH, smKS);
-            placeKnob(releaseSlider, releaseLabel, pad + smCW, smY, smCW, smCH, smKS);
+            // Small DRIVE (SAT) knob at top — ks=58, centred
+            const int drvKS = 58;
+            placeKnob(satSlider, satLabel,
+                      W / 2 - drvKS / 2, 42, drvKS, drvKS + textBoxH + gap + labelH, drvKS);
 
-            // Ratio knob: small, top-right area overlay (hidden by VU visually but still accessible)
-            placeKnob(ratioSlider, ratioLabel,
-                      W - pad - 40, smY, 40, smCH, 40);
+            // VU area: y=118..304 — drawn entirely in paint()
 
-            // VU area: y=122..292 — paint() handles drawing, no components
-
-            // Bottom 2 large knobs: THRESHOLD left, SAT right — y=296..390 (ks=80)
-            const int lgKS = 80;
-            const int lgCW = (W - pad * 2) / 2;
-            const int lgY  = 296;
-            const int lgCH = lgKS + textBoxH + gap + labelH;
-            placeKnob(thresholdSlider, thresholdLabel, pad,        lgY, lgCW, lgCH, lgKS);
-            placeKnob(satSlider,       satLabel,       pad + lgCW, lgY, lgCW, lgCH, lgKS);
-
-            // Mix: small, bottom centre
-            const int mxKS = 40;
-            placeKnob(mixSlider, mixLabel,
-                      W / 2 - mxKS / 2, H - mxKS - textBoxH - gap - labelH - 4,
-                      mxKS, mxKS + textBoxH + gap + labelH, mxKS);
+            // Large PEAK REDUCTION (threshold) knob at bottom — ks=90, centred
+            const int pkKS = 90;
+            placeKnob(thresholdSlider, thresholdLabel,
+                      W / 2 - pkKS / 2, 312, pkKS, pkKS + textBoxH + gap + labelH, pkKS);
             break;
         }
 
@@ -971,106 +980,88 @@ void StageComponent::resized()
         // ------------------------------------------------------------------
         case CompressorModel::ModelDBX160:
         {
+            // Original DBX 160: just THRESHOLD and COMPRESSION (ratio) knobs
+            // Attack/release/mix are automatic — not exposed on the hardware
+            satSlider    .setVisible(false); satLabel    .setVisible(false);
+            attackSlider .setVisible(false); attackLabel .setVisible(false);
+            releaseSlider.setVisible(false); releaseLabel.setVisible(false);
+            mixSlider    .setVisible(false); mixLabel    .setVisible(false);
             numRatioButtons = 0;
-            ratioSlider.setVisible(true);
-            ratioLabel .setVisible(true);
-
-            // GR meter uses built-in widget at bottom section
             grMeter.setVisible(true);
-            grMeter.setHorizontal(true);
+            grMeter.setHorizontal(false);
 
-            // Top 2 large knobs (ks=80): THR left, RATIO right — y=52..148
-            const int lgKS = 80;
+            // Two large knobs at top: THRESHOLD left, COMPRESSION (ratio) right
+            const int lgKS = 88;
             const int lgCW = (W - pad * 2) / 2;
             const int lgCH = lgKS + textBoxH + gap + labelH;
             placeKnob(thresholdSlider, thresholdLabel, pad,        52, lgCW, lgCH, lgKS);
             placeKnob(ratioSlider,     ratioLabel,     pad + lgCW, 52, lgCW, lgCH, lgKS);
 
-            // Row 2: SAT centre-left, ATK centre, REL centre-right (ks=58)
-            const int mdKS = 58;
-            const int mdCW = (W - pad * 2) / 3;
-            const int mdCH = mdKS + textBoxH + gap + labelH;
-            placeKnob(satSlider,     satLabel,     pad,              156, mdCW, mdCH, mdKS);
-            placeKnob(attackSlider,  attackLabel,  pad + mdCW,       156, mdCW, mdCH, mdKS);
-            placeKnob(releaseSlider, releaseLabel, pad + mdCW * 2,   156, mdCW, mdCH, mdKS);
-
-            // MIX small knob centred
-            const int mxKS = 44;
-            placeKnob(mixSlider, mixLabel,
-                      W / 2 - mxKS / 2, 236, mxKS, mxKS + textBoxH + gap + labelH, mxKS);
-
-            // GR meter at bottom section
-            grMeter.setBounds(pad, H - 118, W - pad * 2, 110);
+            // LED bargraph GR meter fills the lower 2/3 of the panel
+            grMeter.setBounds(pad, lgCH + 58, W - pad * 2, H - lgCH - 66);
             break;
         }
 
         // ------------------------------------------------------------------
         case CompressorModel::ModelNeve:
         {
+            // Neve 33609: THRESHOLD, RECOVERY (release), RATIO, ATK TIME switch, DRIVE (sat)
+            // No mix knob on the original hardware
+            mixSlider.setVisible(false); mixLabel.setVisible(false);
             numRatioButtons = 0;
-            ratioSlider.setVisible(true);
-            ratioLabel .setVisible(true);
-            grMeter    .setVisible(true);
-            grMeter    .setHorizontal(false);
+            grMeter.setVisible(true);
+            grMeter.setHorizontal(false);
 
-            // Compressor section: THR + REL side by side, ks=70, y=54..140
+            // COMPRESSOR section: THR + RECOVERY side by side, ks=70, y=52
             const int ks1 = 70;
             const int cw1 = (W - pad * 2) / 2;
             const int ch1 = ks1 + textBoxH + gap + labelH;
-            placeKnob(thresholdSlider, thresholdLabel, pad,        54, cw1, ch1, ks1);
-            placeKnob(releaseSlider,   releaseLabel,   pad + cw1,  54, cw1, ch1, ks1);
+            placeKnob(thresholdSlider, thresholdLabel, pad,        52, cw1, ch1, ks1);
+            placeKnob(releaseSlider,   releaseLabel,   pad + cw1,  52, cw1, ch1, ks1);
 
-            // RATIO + ATK side by side, ks=60, y=148..220
-            const int ks2 = 60;
+            // RATIO + ATK TIME side by side, ks=62, y=152
+            const int ks2 = 62;
             const int cw2 = (W - pad * 2) / 2;
             const int ch2 = ks2 + textBoxH + gap + labelH;
-            placeKnob(ratioSlider,  ratioLabel,  pad,        148, cw2, ch2, ks2);
-            placeKnob(attackSlider, attackLabel, pad + cw2,  148, cw2, ch2, ks2);
+            placeKnob(ratioSlider,  ratioLabel,  pad,        152, cw2, ch2, ks2);
+            placeKnob(attackSlider, attackLabel, pad + cw2,  152, cw2, ch2, ks2);
 
-            // SAT centred, ks=50, y=226..286
-            const int ks3 = 50;
+            // DRIVE (SAT) centred below, ks=54
+            const int ks3 = 54;
             placeKnob(satSlider, satLabel,
-                      W / 2 - ks3 / 2, 226, ks3, ks3 + textBoxH + gap + labelH, ks3);
+                      W / 2 - ks3 / 2, 248, ks3, ks3 + textBoxH + gap + labelH, ks3);
 
-            // MIX small, right side
-            const int mxKS = 44;
-            placeKnob(mixSlider, mixLabel,
-                      W - pad - mxKS, 290, mxKS, mxKS + textBoxH + gap + labelH, mxKS);
-
-            // GR meter: vertical, y=H-88..H-8 (80px tall)
-            grMeter.setBounds(pad, H - 88, W - pad * 2, 80);
+            // GR meter at bottom, 86px tall
+            grMeter.setBounds(pad, H - 90, W - pad * 2, 82);
             break;
         }
 
         // ------------------------------------------------------------------
         case CompressorModel::ModelSSL:
         {
+            // SSL G-Bus: THRESH, RATIO (2/4/10), ATK (stepped), REL (stepped/auto), DRIVE
+            // No makeup (global) — no mix knob on the original hardware
+            mixSlider.setVisible(false); mixLabel.setVisible(false);
             numRatioButtons = 0;
-            ratioSlider.setVisible(true);
-            ratioLabel .setVisible(true);
-            grMeter    .setVisible(true);
-            grMeter    .setHorizontal(true);
+            grMeter.setVisible(true);
+            grMeter.setHorizontal(true);
 
-            // 2×2 grid of medium knobs (ks=70)
-            const int ks  = 70;
-            const int cw  = (W - pad * 2) / 2;
-            const int ch  = ks + textBoxH + gap + labelH;
-            // Row 1: THR left, RATIO right, y=44
-            placeKnob(thresholdSlider, thresholdLabel, pad,       44, cw, ch, ks);
-            placeKnob(ratioSlider,     ratioLabel,     pad + cw,  44, cw, ch, ks);
-            // Row 2: ATK left, REL right, y=138
-            placeKnob(attackSlider,  attackLabel,  pad,      138, cw, ch, ks);
-            placeKnob(releaseSlider, releaseLabel, pad + cw, 138, cw, ch, ks);
+            // 2×2 grid of medium knobs (ks=68)
+            const int ks = 68;
+            const int cw = (W - pad * 2) / 2;
+            const int ch = ks + textBoxH + gap + labelH;
+            placeKnob(thresholdSlider, thresholdLabel, pad,      44, cw, ch, ks);
+            placeKnob(ratioSlider,     ratioLabel,     pad + cw, 44, cw, ch, ks);
+            placeKnob(attackSlider,    attackLabel,    pad,      44 + ch, cw, ch, ks);
+            placeKnob(releaseSlider,   releaseLabel,   pad + cw, 44 + ch, cw, ch, ks);
 
-            // SAT + MIX side by side, ks=60, y=232
-            const int ks2 = 60;
-            const int cw2 = (W - pad * 2) / 2;
-            const int ch2 = ks2 + textBoxH + gap + labelH;
-            placeKnob(satSlider,  satLabel,  pad,       232, cw2, ch2, ks2);
-            placeKnob(mixSlider,  mixLabel,  pad + cw2, 232, cw2, ch2, ks2);
+            // DRIVE (SAT) centred, ks=56
+            const int ks2 = 56;
+            placeKnob(satSlider, satLabel,
+                      W / 2 - ks2 / 2, 44 + ch * 2, ks2, ks2 + textBoxH + gap + labelH, ks2);
 
-            // GR meter: horizontal, y=H-100..H-8
-            grMeter.setBounds(pad, H - 100, W - pad * 2, 92);
+            // GR meter horizontal at bottom
+            grMeter.setBounds(pad, H - 90, W - pad * 2, 82);
             break;
         }
 
