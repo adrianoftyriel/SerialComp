@@ -17,7 +17,6 @@ static void configureRotarySlider(juce::Slider& s)
 
 static void drawScrew(juce::Graphics& g, float cx, float cy, float r = 4.5f)
 {
-    // Silver circle
     juce::ColourGradient screwGrad(
         juce::Colour(0xFFCCCCCC), cx - r * 0.4f, cy - r * 0.4f,
         juce::Colour(0xFF888888), cx + r * 0.4f, cy + r * 0.4f,
@@ -25,11 +24,9 @@ static void drawScrew(juce::Graphics& g, float cx, float cy, float r = 4.5f)
     g.setGradientFill(screwGrad);
     g.fillEllipse(cx - r, cy - r, r * 2.0f, r * 2.0f);
 
-    // Outline
     g.setColour(juce::Colour(0xFF555555));
     g.drawEllipse(cx - r, cy - r, r * 2.0f, r * 2.0f, 0.8f);
 
-    // Phillips cross slot
     g.setColour(juce::Colour(0xFF444444));
     const float slotLen = r * 0.65f;
     const float slotW   = 0.9f;
@@ -48,6 +45,48 @@ static bool isLightPanel(CompressorModel m)
 static juce::Colour panelTextColour(CompressorModel m)
 {
     return isLightPanel(m) ? juce::Colour(0xFF1A1A20) : juce::Colour(0xFFCCCCCC);
+}
+
+static void drawRatioButton(juce::Graphics& g, juce::Rectangle<int> r, bool active,
+                            juce::Colour accent, const juce::String& label)
+{
+    const float cornerR = 3.0f;
+    auto rf = r.toFloat();
+
+    if (active)
+    {
+        // Outer glow
+        g.setColour(accent.withAlpha(0.35f));
+        g.fillRoundedRectangle(rf.expanded(2.0f), cornerR + 1.0f);
+
+        g.setColour(accent);
+        g.fillRoundedRectangle(rf, cornerR);
+
+        // LED highlight top
+        juce::ColourGradient highlight(juce::Colours::white.withAlpha(0.4f), rf.getX(), rf.getY(),
+                                       juce::Colours::transparentBlack, rf.getX(), rf.getCentreY(),
+                                       false);
+        g.setGradientFill(highlight);
+        g.fillRoundedRectangle(rf, cornerR);
+
+        g.setColour(accent.brighter(0.5f));
+        g.drawRoundedRectangle(rf.reduced(0.5f), cornerR, 1.0f);
+
+        g.setColour(juce::Colours::black.withAlpha(0.9f));
+    }
+    else
+    {
+        g.setColour(juce::Colour(0xFF222222));
+        g.fillRoundedRectangle(rf, cornerR);
+
+        g.setColour(juce::Colour(0xFF444444));
+        g.drawRoundedRectangle(rf.reduced(0.5f), cornerR, 1.0f);
+
+        g.setColour(juce::Colour(0xFF888888));
+    }
+
+    g.setFont(juce::Font(9.5f, juce::Font::bold));
+    g.drawText(label, r, juce::Justification::centred);
 }
 
 // ---------------------------------------------------------------------------
@@ -83,32 +122,31 @@ StageComponent::StageComponent(juce::AudioProcessorValueTreeState& apvts_, int i
     setupSlider(ratioSlider,     ratioLabel,     "RATIO");
     setupSlider(attackSlider,    attackLabel,    "ATK");
     setupSlider(releaseSlider,   releaseLabel,   "REL");
-    setupSlider(kneeSlider,      kneeLabel,      "KNEE");
+    setupSlider(satSlider,       satLabel,       "SAT");
     setupSlider(mixSlider,       mixLabel,       "MIX");
 
-    // Custom display formats
     thresholdSlider.textFromValueFunction = [](double v) { return juce::String(v, 1) + " dB"; };
     ratioSlider.textFromValueFunction     = [](double v) { return juce::String(v, 1) + ":1"; };
     attackSlider.textFromValueFunction    = [](double v) { return juce::String(v, 2) + " ms"; };
     releaseSlider.textFromValueFunction   = [](double v) {
         return juce::String(v < 1000.0 ? v : v / 1000.0, 2) + (v < 1000.0 ? " ms" : " s");
     };
-    kneeSlider.textFromValueFunction = [](double v) { return juce::String(v, 1) + " dB"; };
-    mixSlider.textFromValueFunction  = [](double v) {
+    satSlider.textFromValueFunction = [](double v) {
+        return juce::String(juce::roundToInt(v * 100.0)) + "%";
+    };
+    mixSlider.textFromValueFunction = [](double v) {
         return juce::String(juce::roundToInt(v * 100.0)) + "%";
     };
 
-    // Attachments
     thresholdAtt = std::make_unique<SliderAttachment>(apvts, pid("threshold"), thresholdSlider);
     ratioAtt     = std::make_unique<SliderAttachment>(apvts, pid("ratio"),     ratioSlider);
     attackAtt    = std::make_unique<SliderAttachment>(apvts, pid("attack"),    attackSlider);
     releaseAtt   = std::make_unique<SliderAttachment>(apvts, pid("release"),   releaseSlider);
-    kneeAtt      = std::make_unique<SliderAttachment>(apvts, pid("knee"),      kneeSlider);
+    satAtt       = std::make_unique<SliderAttachment>(apvts, pid("sat"),       satSlider);
     mixAtt       = std::make_unique<SliderAttachment>(apvts, pid("mix"),       mixSlider);
 
     addAndMakeVisible(grMeter);
 
-    // Apply initial model appearance
     updateModelAppearance();
 }
 
@@ -136,21 +174,14 @@ void StageComponent::setupSlider(juce::Slider& s, juce::Label& lbl, const juce::
 
 void StageComponent::applyModelDefaults()
 {
-    int idx = modelBox.getSelectedId() - 1;
-    if (idx < 0 || idx >= static_cast<int>(CompressorModel::NumModels)) return;
-    auto def = getModelDefaults(static_cast<CompressorModel>(idx));
-
-    auto setParam = [&](const juce::String& paramId, float value)
-    {
-        if (auto* p = apvts.getParameter(paramId))
-            p->setValueNotifyingHost(p->getNormalisableRange().convertTo0to1(value));
-    };
-
-    setParam(pid("threshold"), def.threshold);
-    setParam(pid("ratio"),     def.ratio);
-    setParam(pid("attack"),    def.attackMs);
-    setParam(pid("release"),   def.releaseMs);
-    setParam(pid("knee"),      def.kneeDB);
+    auto model = static_cast<CompressorModel>(modelBox.getSelectedItemIndex());
+    auto d = getModelDefaults(model);
+    thresholdSlider.setValue(d.threshold,         juce::dontSendNotification);
+    ratioSlider    .setValue(d.ratio,             juce::dontSendNotification);
+    attackSlider   .setValue(d.attackMs,          juce::dontSendNotification);
+    releaseSlider  .setValue(d.releaseMs,         juce::dontSendNotification);
+    satSlider      .setValue(d.saturationDefault, juce::dontSendNotification);
+    mixSlider      .setValue(d.mix,               juce::dontSendNotification);
 }
 
 // ---------------------------------------------------------------------------
@@ -159,39 +190,35 @@ void StageComponent::applyModelDefaults()
 
 void StageComponent::updateModelAppearance()
 {
-    // 1. Get current model
-    int idx = modelBox.getSelectedId() - 1;
-    CompressorModel model = CompressorModel::ModelManual;
-    if (idx >= 0 && idx < static_cast<int>(CompressorModel::NumModels))
-        model = static_cast<CompressorModel>(idx);
+    auto model = static_cast<CompressorModel>(modelBox.getSelectedItemIndex());
 
-    // 2. Update label text per model
-    struct LabelTexts { const char* thr; const char* ratio; const char* atk; const char* rel; const char* knee; const char* mix; };
+    // Label texts per model
+    struct LabelTexts { const char* thr; const char* ratio; const char* atk; const char* rel; const char* sat; const char* mix; };
     LabelTexts texts = {};
 
     switch (model)
     {
         case CompressorModel::Model1176:
-            texts = { "INPUT", "RATIO", "ATTACK", "RELEASE", "KNEE", "OUTPUT" };
+            texts = { "INPUT", "RATIO", "ATTACK", "RELEASE", "INPUT", "OUTPUT" };
             break;
         case CompressorModel::ModelLA2A:
-            texts = { "PEAK RED.", "RATIO", "ATTACK", "RELEASE", "KNEE", "GAIN" };
+            texts = { "PEAK RED.", "RATIO", "ATTACK", "RELEASE", "DRIVE", "GAIN" };
             break;
         case CompressorModel::ModelDestressor:
-            texts = { "THRESH", "RATIO", "ATK", "REL", "KNEE", "MIX" };
+            texts = { "THRESH", "RATIO", "ATK", "REL", "SAT", "MIX" };
             break;
-        case CompressorModel::ModelDBX160A:
-            texts = { "THRESHOLD", "RATIO", "ATTACK", "RELEASE", "KNEE", "MIX" };
+        case CompressorModel::ModelDBX160:
+            texts = { "THRESHOLD", "RATIO", "ATTACK", "RELEASE", "SAT", "MIX" };
             break;
         case CompressorModel::ModelNeve:
-            texts = { "THRESHOLD", "RATIO", "ATTACK", "RELEASE", "KNEE", "MIX" };
+            texts = { "THRESHOLD", "RATIO", "ATTACK", "RECOVERY", "SAT", "MIX" };
             break;
         case CompressorModel::ModelSSL:
-            texts = { "THRESHOLD", "RATIO", "ATTACK", "RELEASE", "KNEE", "MIX" };
+            texts = { "THRESHOLD", "RATIO", "ATTACK", "RELEASE", "SAT", "MIX" };
             break;
         case CompressorModel::ModelManual:
         default:
-            texts = { "THR", "RATIO", "ATK", "REL", "KNEE", "MIX" };
+            texts = { "THR", "RATIO", "ATK", "REL", "SAT", "MIX" };
             break;
     }
 
@@ -199,46 +226,74 @@ void StageComponent::updateModelAppearance()
     ratioLabel    .setText(texts.ratio, juce::dontSendNotification);
     attackLabel   .setText(texts.atk,   juce::dontSendNotification);
     releaseLabel  .setText(texts.rel,   juce::dontSendNotification);
-    kneeLabel     .setText(texts.knee,  juce::dontSendNotification);
     mixLabel      .setText(texts.mix,   juce::dontSendNotification);
 
-    // 3. Knob arc colour (fill)
-    juce::Colour arcColour = getModelColour(model);
+    // SAT label special names
+    switch (model)
+    {
+        case CompressorModel::Model1176:
+            satLabel.setText("INPUT", juce::dontSendNotification);
+            break;
+        case CompressorModel::ModelLA2A:
+            satLabel.setText("DRIVE", juce::dontSendNotification);
+            break;
+        default:
+            satLabel.setText("SAT", juce::dontSendNotification);
+            break;
+    }
 
-    // 4. Track colour
-    juce::Colour trackColour = isLightPanel(model)
-        ? juce::Colour(0xFF888880)
-        : juce::Colour(0xFF303038);
+    // Knob arc colours per model
+    struct ModelColors { juce::Colour fill; juce::Colour track; };
+    ModelColors mc = {};
+    switch (model)
+    {
+        case CompressorModel::Model1176:
+            mc = { juce::Colour(0xFFCC6622), juce::Colour(0xFF1A2A4A) };
+            break;
+        case CompressorModel::ModelLA2A:
+            mc = { juce::Colour(0xFF44AA44), juce::Colour(0xFF445533) };
+            break;
+        case CompressorModel::ModelDestressor:
+            mc = { juce::Colour(0xFF44AA88), juce::Colour(0xFF998877) };
+            break;
+        case CompressorModel::ModelDBX160:
+            mc = { juce::Colour(0xFFCC5500), juce::Colour(0xFF332211) };
+            break;
+        case CompressorModel::ModelNeve:
+            mc = { juce::Colour(0xFFEE7722), juce::Colour(0xFF2A2A30) };
+            break;
+        case CompressorModel::ModelSSL:
+            mc = { juce::Colour(0xFFAACC22), juce::Colour(0xFF778877) };
+            break;
+        default:
+            mc = { juce::Colour(0xFF4488CC), juce::Colour(0xFF222233) };
+            break;
+    }
 
     juce::Slider* sliders[] = {
         &thresholdSlider, &ratioSlider, &attackSlider,
-        &releaseSlider,   &kneeSlider,  &mixSlider
+        &releaseSlider,   &satSlider,   &mixSlider
     };
-
     for (auto* s : sliders)
     {
-        s->setColour(juce::Slider::rotarySliderFillColourId,    arcColour);
-        s->setColour(juce::Slider::rotarySliderOutlineColourId, trackColour);
+        s->setColour(juce::Slider::rotarySliderFillColourId,    mc.fill);
+        s->setColour(juce::Slider::rotarySliderOutlineColourId, mc.track);
     }
 
-    // 5. Label text colours
     juce::Colour txtCol = panelTextColour(model);
-
     juce::Label* labels[] = {
         &thresholdLabel, &ratioLabel, &attackLabel,
-        &releaseLabel,   &kneeLabel,  &mixLabel
+        &releaseLabel,   &satLabel,   &mixLabel
     };
-
     for (auto* lbl : labels)
         lbl->setColour(juce::Label::textColourId, txtCol);
 
     stageLabel.setColour(juce::Label::textColourId, txtCol);
 
-    // 6. Slider textbox text colour
     for (auto* s : sliders)
         s->setColour(juce::Slider::textBoxTextColourId, txtCol);
 
-    // 7. GR meter orientation / visibility
+    // GR meter orientation
     if (model == CompressorModel::Model1176)
     {
         grMeter.setHorizontal(true);
@@ -254,9 +309,7 @@ void StageComponent::updateModelAppearance()
         grMeter.setVisible(true);
     }
 
-    // 8 & 9. Trigger layout and repaint
-    if (getWidth() > 0)
-        resized();
+    if (getWidth() > 0) { numRatioButtons = 0; resized(); }
     repaint();
 }
 
@@ -275,9 +328,9 @@ void StageComponent::setGainReduction(float dB)
 {
     currentGainReductionDB = dB;
     grMeter.setGainReduction(dB);
-    int idx = modelBox.getSelectedId() - 1;
-    if (idx == static_cast<int>(CompressorModel::ModelLA2A))
-        repaint();  // update LA-2A VU needle
+    auto model = static_cast<CompressorModel>(modelBox.getSelectedItemIndex());
+    if (model == CompressorModel::ModelLA2A)
+        repaint();
 }
 
 juce::String StageComponent::pid(const juce::String& param) const
@@ -286,17 +339,40 @@ juce::String StageComponent::pid(const juce::String& param) const
 }
 
 // ---------------------------------------------------------------------------
-// paint  — model-specific background + decorations
+// mouseDown
+// ---------------------------------------------------------------------------
+
+void StageComponent::mouseDown(const juce::MouseEvent& e)
+{
+    if (numRatioButtons == 0) return;
+
+    auto model = static_cast<CompressorModel>(modelBox.getSelectedItemIndex());
+
+    const float vals1176[]      = { 2.0f, 4.0f, 8.0f, 12.0f, 20.0f };
+    const float valsDistressor[] = { 1.0f, 2.0f, 4.0f, 6.0f, 10.0f, 20.0f };
+    const float* vals = (model == CompressorModel::Model1176) ? vals1176 : valsDistressor;
+
+    for (int i = 0; i < numRatioButtons; i++)
+    {
+        if (ratioButtonRects[i].contains(e.getPosition()))
+        {
+            ratioSlider.setValue(vals[i], juce::sendNotification);
+            repaint();
+            return;
+        }
+    }
+    juce::Component::mouseDown(e);
+}
+
+// ---------------------------------------------------------------------------
+// paint  — model-specific backgrounds and decorations
 // ---------------------------------------------------------------------------
 
 void StageComponent::paint(juce::Graphics& g)
 {
     auto bounds = getLocalBounds().toFloat();
 
-    int modelIdx = modelBox.getSelectedId() - 1;
-    CompressorModel model = CompressorModel::ModelManual;
-    if (modelIdx >= 0 && modelIdx < static_cast<int>(CompressorModel::NumModels))
-        model = static_cast<CompressorModel>(modelIdx);
+    auto model = static_cast<CompressorModel>(modelBox.getSelectedItemIndex());
 
     const float cornerR = 5.0f;
     const float W = bounds.getWidth();
@@ -309,8 +385,8 @@ void StageComponent::paint(juce::Graphics& g)
         {
             // Silver brushed-aluminum gradient
             juce::ColourGradient bg(
-                juce::Colour(0xFFCCCCCA), 0.0f, 0.0f,
-                juce::Colour(0xFFB4B4BC), 0.0f, H,
+                juce::Colour(0xFF8888AA), 0.0f, 0.0f,
+                juce::Colour(0xFFAAAAAA), 0.0f, H,
                 false);
             g.setGradientFill(bg);
             g.fillRoundedRectangle(bounds, cornerR);
@@ -318,31 +394,38 @@ void StageComponent::paint(juce::Graphics& g)
             // Subtle horizontal brush lines every 4px
             for (int lineY = 0; lineY < (int) H; lineY += 4)
             {
-                g.setColour(juce::Colour(0x10FFFFFF));
+                g.setColour(juce::Colour(0x0CFFFFFF));
                 g.drawHorizontalLine(lineY, 0.0f, W);
             }
 
-            // Navy blue top accent stripe
-            g.setColour(juce::Colour(0xFF1133AA));
-            g.fillRect(0.0f, 0.0f, W, 5.0f);
+            // Navy blue top stripe (36px)
+            g.setColour(juce::Colour(0xFF1A2A4A));
+            g.fillRect(0.0f, 0.0f, W, 36.0f);
 
-            // Corner screws
-            drawScrew(g, 8.0f, 8.0f);
+            // "1176LN" text in stripe
+            g.setColour(juce::Colours::white);
+            g.setFont(juce::Font(14.0f, juce::Font::bold));
+            g.drawText("1176LN", 0, 0, (int) W, 36, juce::Justification::centred);
+
+            // Corner screws on stripe
+            drawScrew(g, 8.0f,     8.0f);
             drawScrew(g, W - 8.0f, 8.0f);
-            drawScrew(g, 8.0f, H - 8.0f);
+
+            // Bottom panel screws
+            drawScrew(g, 8.0f,     H - 8.0f);
             drawScrew(g, W - 8.0f, H - 8.0f);
 
-            // Branding at bottom
-            g.setColour(juce::Colour(0xFF222233));
-            g.setFont(juce::Font(10.0f, juce::Font::bold));
-            g.drawText("UA 1176LN", 0, (int) H - 16, (int) W, 14,
-                       juce::Justification::centred);
-
-            // "GR" label above the GR meter strip
-            g.setFont(juce::Font(8.0f, juce::Font::bold));
-            g.setColour(juce::Colour(0xFF222233));
-            // Header overhead: 6 (padding) + 22 (stageLabel row) + 2 (gap) + 22 (model box) + 4 = 56
-            g.drawText("GR", 0, 56, (int) W, 12, juce::Justification::centred);
+            // Draw ratio buttons
+            {
+                const juce::String ratioLabels[] = { "2:1", "4:1", "8:1", "12:1", "20:1" };
+                const float        ratioVals[]   = { 2.0f,  4.0f,  8.0f,  12.0f,  20.0f };
+                const juce::Colour accent(0xFFCC7722);
+                for (int i = 0; i < numRatioButtons && i < 5; i++)
+                {
+                    bool active = (std::abs((float) ratioSlider.getValue() - ratioVals[i]) < 0.5f);
+                    drawRatioButton(g, ratioButtonRects[i], active, accent, ratioLabels[i]);
+                }
+            }
 
             // Border
             g.setColour(juce::Colour(0xFF888899));
@@ -353,38 +436,52 @@ void StageComponent::paint(juce::Graphics& g)
         // ------------------------------------------------------------------
         case CompressorModel::ModelLA2A:
         {
-            // Warm gray gradient
+            // Warm olive/gray gradient
             juce::ColourGradient bg(
-                juce::Colour(0xFF989890), 0.0f, 0.0f,
-                juce::Colour(0xFFA8A8A0), 0.0f, H,
+                juce::Colour(0xFF7A7868), 0.0f, 0.0f,
+                juce::Colour(0xFF6A6858), 0.0f, H,
                 false);
             g.setGradientFill(bg);
             g.fillRoundedRectangle(bounds, cornerR);
 
-            // Content area starts below header (approx 56px overhead)
-            const float headerH  = 56.0f;
-            const float contentH = H - headerH - 6.0f; // 6px bottom padding
-            const float vuH      = contentH * 0.40f;
-            const float vuY      = headerH;
+            // Top stripe
+            g.setColour(juce::Colour(0xFF5A5848));
+            g.fillRect(0.0f, 0.0f, W, 36.0f);
 
-            // VU meter face background
+            // "LA-2A" text in stripe
+            g.setColour(juce::Colour(0xFFEEDDBB));
+            g.setFont(juce::Font(14.0f, juce::Font::bold));
+            g.drawText("LA-2A", 0, 0, (int) W, 36, juce::Justification::centred);
+
+            // Corner screws
+            drawScrew(g, 8.0f,     8.0f);
+            drawScrew(g, W - 8.0f, 8.0f);
+            drawScrew(g, 8.0f,     H - 8.0f);
+            drawScrew(g, W - 8.0f, H - 8.0f);
+
+            // VU meter area: middle 170px starting at y=122
+            const float vuY = 122.0f;
+            const float vuH = 170.0f;
             auto vuRect = juce::Rectangle<float>(6.0f, vuY, W - 12.0f, vuH);
-            g.setColour(juce::Colour(0xFF1A1A18));
-            g.fillRoundedRectangle(vuRect, 4.0f);
 
-            // "GR" label inside VU area
+            // Dark oval inset
+            g.setColour(juce::Colour(0xFF2A2820));
+            g.fillRoundedRectangle(vuRect, 6.0f);
+
+            // "GR" label
             g.setFont(juce::Font(8.0f, juce::Font::bold));
-            g.setColour(juce::Colour(0xFF666655));
-            g.drawText("GR", (int) vuRect.getX() + 4, (int) vuRect.getY() + 3,
+            g.setColour(juce::Colour(0xFF888877));
+            g.drawText("GR", (int) vuRect.getX() + 6, (int) vuRect.getY() + 5,
                        24, 10, juce::Justification::centredLeft);
 
-            // Semi-circular VU arc
-            const float pivotX  = vuRect.getCentreX();
-            const float pivotY  = vuRect.getBottom() - 4.0f;
-            const float arcR    = juce::jmin(vuRect.getWidth() * 0.42f,
-                                             vuRect.getHeight() * 0.90f);
-            const float arcStart = 3.93f;
-            const float arcEnd   = 5.50f;
+            // Semi-circular VU arc (180° sweep)
+            const float pivotX = vuRect.getCentreX();
+            const float pivotY = vuRect.getBottom() - 14.0f;
+            const float arcR   = juce::jmin(vuRect.getWidth() * 0.40f,
+                                            vuRect.getHeight() * 0.85f);
+            // Arc from ~210° to ~330° (bottom of circle, sweeping right)
+            const float arcStart = 3.93f;  // ~225 deg (lower-left)
+            const float arcEnd   = 5.50f;  // ~315 deg (lower-right)
 
             // Track arc
             juce::Path trackArc;
@@ -392,26 +489,23 @@ void StageComponent::paint(juce::Graphics& g)
                             arcR * 2.0f, arcR * 2.0f,
                             arcStart, arcEnd, true);
             g.setColour(juce::Colour(0xFF444433));
-            g.strokePath(trackArc, juce::PathStrokeType(2.5f));
+            g.strokePath(trackArc, juce::PathStrokeType(3.0f));
 
-            // Scale ticks & labels: 0, -2, -4, -6, -8, -10, -14 dB GR
-            // Map dB to angle: 0 dB -> arcStart, 20 dB -> arcEnd
+            // Scale ticks (0, -2, -4, -6, -8, -10, -14 dB GR)
             const float dbTicks[] = { 0.0f, 2.0f, 4.0f, 6.0f, 8.0f, 10.0f, 14.0f };
-            const int   numTicks  = 7;
-            for (int ti = 0; ti < numTicks; ti++)
+            for (int ti = 0; ti < 7; ti++)
             {
-                float db      = dbTicks[ti];
-                float ang     = arcStart + (db / 20.0f) * (arcEnd - arcStart);
-                float tx      = pivotX + arcR * std::cos(ang);
-                float ty      = pivotY + arcR * std::sin(ang);
-                float tx2     = pivotX + (arcR - 6.0f) * std::cos(ang);
-                float ty2     = pivotY + (arcR - 6.0f) * std::sin(ang);
+                float db  = dbTicks[ti];
+                float ang = arcStart + (db / 20.0f) * (arcEnd - arcStart);
+                float tx  = pivotX + arcR * std::cos(ang);
+                float ty  = pivotY + arcR * std::sin(ang);
+                float tx2 = pivotX + (arcR - 7.0f) * std::cos(ang);
+                float ty2 = pivotY + (arcR - 7.0f) * std::sin(ang);
                 g.setColour(juce::Colour(0xFFAAAAAA));
                 g.drawLine(tx, ty, tx2, ty2, 1.0f);
 
-                // Label
-                float lx = pivotX + (arcR - 14.0f) * std::cos(ang);
-                float ly = pivotY + (arcR - 14.0f) * std::sin(ang);
+                float lx = pivotX + (arcR - 15.0f) * std::cos(ang);
+                float ly = pivotY + (arcR - 15.0f) * std::sin(ang);
                 g.setFont(juce::Font(6.5f));
                 g.setColour(juce::Colour(0xFF999988));
                 g.drawText(juce::String((int) db),
@@ -419,44 +513,43 @@ void StageComponent::paint(juce::Graphics& g)
                            juce::Justification::centred);
             }
 
-            // VU Needle
+            // VU needle
             {
                 float needleDb  = juce::jlimit(0.0f, 20.0f, currentGainReductionDB);
                 float needleAng = arcStart + (needleDb / 20.0f) * (arcEnd - arcStart);
-                float needleTipX = pivotX + (arcR - 2.0f) * std::cos(needleAng);
-                float needleTipY = pivotY + (arcR - 2.0f) * std::sin(needleAng);
+                float tipX = pivotX + (arcR - 2.0f) * std::cos(needleAng);
+                float tipY = pivotY + (arcR - 2.0f) * std::sin(needleAng);
 
                 g.setColour(juce::Colours::white.withAlpha(0.9f));
-                g.drawLine(pivotX, pivotY, needleTipX, needleTipY, 1.5f);
+                g.drawLine(pivotX, pivotY, tipX, tipY, 1.5f);
 
-                // Small red triangle at tip
                 juce::Path tip;
-                const float tipSize = 3.5f;
-                tip.addTriangle(
-                    needleTipX, needleTipY,
-                    needleTipX + tipSize * std::cos(needleAng + 0.4f),
-                    needleTipY + tipSize * std::sin(needleAng + 0.4f),
-                    needleTipX + tipSize * std::cos(needleAng - 0.4f),
-                    needleTipY + tipSize * std::sin(needleAng - 0.4f));
+                const float tipSz = 3.5f;
+                tip.addTriangle(tipX, tipY,
+                    tipX + tipSz * std::cos(needleAng + 0.4f),
+                    tipY + tipSz * std::sin(needleAng + 0.4f),
+                    tipX + tipSz * std::cos(needleAng - 0.4f),
+                    tipY + tipSz * std::sin(needleAng - 0.4f));
                 g.setColour(juce::Colour(0xFFCC2222));
                 g.fillPath(tip);
 
-                // Pivot dot
                 g.setColour(juce::Colour(0xFFCCCCCC));
                 g.fillEllipse(pivotX - 3.0f, pivotY - 3.0f, 6.0f, 6.0f);
             }
 
-            // Branding
-            g.setColour(juce::Colour(0xFF333322));
-            g.setFont(juce::Font(10.0f, juce::Font::bold));
-            g.drawText("LA-2A", 0, (int) H - 16, (int) W, 14,
-                       juce::Justification::centred);
-
-            // Corner screws
-            drawScrew(g, 8.0f, 8.0f);
-            drawScrew(g, W - 8.0f, 8.0f);
-            drawScrew(g, 8.0f, H - 8.0f);
-            drawScrew(g, W - 8.0f, H - 8.0f);
+            // Bottom label strip
+            auto bottomRect = juce::Rectangle<float>(6.0f, vuRect.getBottom() + 2.0f,
+                                                     W - 12.0f, 18.0f);
+            g.setColour(juce::Colour(0xFF3A3828));
+            g.fillRoundedRectangle(bottomRect, 3.0f);
+            g.setColour(juce::Colour(0xFF999988));
+            g.setFont(juce::Font(7.5f));
+            g.drawText("PEAK REDUCTION", (int) bottomRect.getX(), (int) bottomRect.getY(),
+                       (int) bottomRect.getWidth() / 2, (int) bottomRect.getHeight(),
+                       juce::Justification::centredLeft);
+            g.drawText("GAIN", (int) bottomRect.getCentreX(), (int) bottomRect.getY(),
+                       (int) bottomRect.getWidth() / 2, (int) bottomRect.getHeight(),
+                       juce::Justification::centredRight);
 
             // Border
             g.setColour(juce::Colour(0xFF777770));
@@ -467,62 +560,101 @@ void StageComponent::paint(juce::Graphics& g)
         // ------------------------------------------------------------------
         case CompressorModel::ModelDestressor:
         {
-            // Cream gradient
-            juce::ColourGradient bg(
-                juce::Colour(0xFFE0D4C0), 0.0f, 0.0f,
-                juce::Colour(0xFFCEC2AC), 0.0f, H,
-                false);
-            g.setGradientFill(bg);
+            // Cream/off-white background
+            g.setColour(juce::Colour(0xFFEEE8D8));
             g.fillRoundedRectangle(bounds, cornerR);
 
-            // Green accent stripe at top
-            g.setColour(juce::Colour(0xFF228844));
-            g.fillRect(0.0f, 0.0f, W, 5.0f);
+            // Slightly darker right column background
+            g.setColour(juce::Colour(0xFFE0DAC8));
+            g.fillRect(106.0f, 0.0f, W - 106.0f, H);
 
-            // Branding at bottom
-            g.setColour(juce::Colour(0xFF2A2A20));
-            g.setFont(juce::Font(9.0f, juce::Font::bold));
-            g.drawText("DISTRESSOR", 0, (int) H - 16, (int) W, 14,
-                       juce::Justification::centred);
+            // Teal/green top stripe
+            g.setColour(juce::Colour(0xFF2A7A6A));
+            g.fillRect(0.0f, 0.0f, W, 36.0f);
+
+            // "DISTRESSOR" text in stripe
+            g.setColour(juce::Colours::white);
+            g.setFont(juce::Font(12.0f, juce::Font::bold));
+            g.drawText("DISTRESSOR", 0, 2, (int) W, 20, juce::Justification::centred);
+
+            // "EMPIRICAL LABS" small text
+            g.setColour(juce::Colours::white.withAlpha(0.7f));
+            g.setFont(juce::Font(7.5f));
+            g.drawText("EMPIRICAL LABS", 0, 22, (int) W, 12, juce::Justification::centred);
 
             // Corner screws
-            drawScrew(g, 8.0f, 8.0f);
+            drawScrew(g, 8.0f,     8.0f);
             drawScrew(g, W - 8.0f, 8.0f);
-            drawScrew(g, 8.0f, H - 8.0f);
+            drawScrew(g, 8.0f,     H - 8.0f);
             drawScrew(g, W - 8.0f, H - 8.0f);
 
-            // Border
+            // Ratio buttons (right column)
+            {
+                const juce::String ratioLabels[] = { "1:1", "2:1", "4:1", "6:1", "10:1", "20:1" };
+                const float        ratioVals[]   = { 1.0f,  2.0f,  4.0f,  6.0f,  10.0f,  20.0f };
+                const juce::Colour accent(0xFF44AA88);
+                for (int i = 0; i < numRatioButtons && i < 6; i++)
+                {
+                    bool active = (std::abs((float) ratioSlider.getValue() - ratioVals[i]) < 0.5f);
+                    drawRatioButton(g, ratioButtonRects[i], active, accent, ratioLabels[i]);
+                }
+            }
+
+            // Panel border (tan/brown)
             g.setColour(juce::Colour(0xFFAA9980));
             g.drawRoundedRectangle(bounds.reduced(0.5f), cornerR, 1.0f);
             break;
         }
 
         // ------------------------------------------------------------------
-        case CompressorModel::ModelDBX160A:
+        case CompressorModel::ModelDBX160:
         {
-            // Dark gradient
-            juce::ColourGradient bg(
-                juce::Colour(0xFF0E0E10), 0.0f, 0.0f,
-                juce::Colour(0xFF1A1A1C), 0.0f, H,
-                false);
-            g.setGradientFill(bg);
+            // Flat black background
+            g.setColour(juce::Colour(0xFF111111));
             g.fillRoundedRectangle(bounds, cornerR);
 
-            // Red accent stripe at top
-            g.setColour(juce::Colour(0xFFCC2222));
-            g.fillRect(0.0f, 0.0f, W, 5.0f);
+            // Orange accent bar top (48px)
+            g.setColour(juce::Colour(0xFFCC5500));
+            g.fillRect(0.0f, 0.0f, W, 48.0f);
 
-            // "dbx" branding (bold, red, left-aligned)
-            g.setColour(juce::Colour(0xFFCC2222));
-            g.setFont(juce::Font(12.0f, juce::Font::bold));
-            g.drawText("dbx", 8, (int) H - 18, (int) W / 2, 16,
-                       juce::Justification::centredLeft);
+            // "dbx" bold in bar
+            g.setColour(juce::Colour(0xFFFF3300));
+            g.setFont(juce::Font(18.0f, juce::Font::bold));
+            g.drawText("dbx", 8, 4, (int) W / 2, 24, juce::Justification::centredLeft);
 
-            // "MODEL 160A" (gray, right-aligned)
-            g.setColour(juce::Colour(0xFF888888));
-            g.setFont(juce::Font(8.0f));
-            g.drawText("MODEL 160A", (int) W / 2, (int) H - 16, (int) W / 2 - 6, 14,
-                       juce::Justification::centredRight);
+            // "MODEL 160" small white text
+            g.setColour(juce::Colours::white);
+            g.setFont(juce::Font(9.0f));
+            g.drawText("MODEL 160", 8, 30, (int) W - 16, 14, juce::Justification::centredLeft);
+
+            // LED bargraph GR meter (bottom 110px)
+            {
+                const int meterX = 8;
+                const int meterY = (int) H - 118;
+                const int meterW = (int) W - 16;
+                const int segH   = 8;
+                const int segGap = 1;
+                const int numSegs = 20;
+
+                for (int seg = 0; seg < numSegs; seg++)
+                {
+                    // seg 0 = top (most GR), seg 19 = bottom (least GR)
+                    float segDb = ((numSegs - seg) / (float) numSegs) * 20.0f;
+                    bool lit = (currentGainReductionDB >= segDb - 1.0f);
+
+                    int y = meterY + seg * (segH + segGap);
+                    juce::Colour segColour;
+                    if (segDb > 12.0f)
+                        segColour = lit ? juce::Colour(0xFFDD2200) : juce::Colour(0xFF2A0800);
+                    else if (segDb > 6.0f)
+                        segColour = lit ? juce::Colour(0xFFDDCC00) : juce::Colour(0xFF2A2600);
+                    else
+                        segColour = lit ? juce::Colour(0xFF22CC22) : juce::Colour(0xFF082208);
+
+                    g.setColour(segColour);
+                    g.fillRect(meterX, y, meterW, segH);
+                }
+            }
 
             // Border
             g.setColour(juce::Colour(0xFF383838));
@@ -535,33 +667,60 @@ void StageComponent::paint(juce::Graphics& g)
         {
             // Dark charcoal gradient
             juce::ColourGradient bg(
-                juce::Colour(0xFF1A1C1E), 0.0f, 0.0f,
-                juce::Colour(0xFF22262A), 0.0f, H,
+                juce::Colour(0xFF1A1A1E), 0.0f, 0.0f,
+                juce::Colour(0xFF222228), 0.0f, H,
                 false);
             g.setGradientFill(bg);
             g.fillRoundedRectangle(bounds, cornerR);
 
-            // Orange accent stripe at top
-            g.setColour(juce::Colour(0xFFCC5522));
-            g.fillRect(0.0f, 0.0f, W, 5.0f);
+            // Orange top stripe
+            g.setColour(juce::Colour(0xFFCC5500));
+            g.fillRect(0.0f, 0.0f, W, 36.0f);
 
-            // "neve" italic at bottom left
-            g.setColour(juce::Colour(0xFFCC6633));
-            g.setFont(juce::Font(14.0f, juce::Font::italic));
-            g.drawText("neve", 8, (int) H - 18, 60, 16,
-                       juce::Justification::centredLeft);
+            // "neve" italic
+            g.setColour(juce::Colours::white);
+            g.setFont(juce::Font(16.0f, juce::Font::italic));
+            g.drawText("neve", 6, 2, 70, 22, juce::Justification::centredLeft);
 
-            // "33609" model number
-            g.setColour(juce::Colour(0xFF888888));
-            g.setFont(juce::Font(8.0f));
-            g.drawText("33609", 68, (int) H - 16, (int) W - 76, 14,
-                       juce::Justification::centredLeft);
+            // "33609" small text
+            g.setColour(juce::Colours::white.withAlpha(0.7f));
+            g.setFont(juce::Font(9.0f));
+            g.drawText("33609", 6, 22, (int) W - 12, 12, juce::Justification::centredLeft);
 
-            // Corner screws
-            drawScrew(g, 8.0f, 8.0f);
+            // Compressor section background
+            g.setColour(juce::Colour(0xFF282830));
+            g.fillRect(4.0f, 40.0f, W - 8.0f, 256.0f);
+
+            // "COMPRESSOR" section label
+            g.setColour(juce::Colour(0xFFCC5500));
+            g.setFont(juce::Font(8.0f, juce::Font::bold));
+            g.drawText("COMPRESSOR", 8, 42, (int) W - 16, 10, juce::Justification::centredLeft);
+
+            // Compressor section divider
+            g.setColour(juce::Colour(0xFF444448));
+            g.drawHorizontalLine(54, 4.0f, W - 4.0f);
+
+            // Limiter section label
+            g.setColour(juce::Colour(0xFFCC5500));
+            g.setFont(juce::Font(8.0f, juce::Font::bold));
+            g.drawText("LIMITER", 8, 298, (int) W - 16, 10, juce::Justification::centredLeft);
+
+            // Limiter section divider
+            g.setColour(juce::Colour(0xFF444448));
+            g.drawHorizontalLine(300, 4.0f, W - 4.0f);
+
+            // Section corner screws
+            drawScrew(g, 8.0f,     8.0f);
             drawScrew(g, W - 8.0f, 8.0f);
-            drawScrew(g, 8.0f, H - 8.0f);
+            drawScrew(g, 8.0f,     H - 8.0f);
             drawScrew(g, W - 8.0f, H - 8.0f);
+
+            // GR meter border accent
+            {
+                int grY = (int) H - 88;
+                g.setColour(juce::Colour(0xFFCC5500).withAlpha(0.5f));
+                g.drawRect(4, grY - 2, (int) W - 8, 84, 1);
+            }
 
             // Border
             g.setColour(juce::Colour(0xFF404448));
@@ -572,31 +731,32 @@ void StageComponent::paint(juce::Graphics& g)
         // ------------------------------------------------------------------
         case CompressorModel::ModelSSL:
         {
-            // Light gray gradient
-            juce::ColourGradient bg(
-                juce::Colour(0xFFC8C8C0), 0.0f, 0.0f,
-                juce::Colour(0xFFD8D8D0), 0.0f, H,
-                false);
-            g.setGradientFill(bg);
+            // Light gray background
+            g.setColour(juce::Colour(0xFFD8D8D0));
             g.fillRoundedRectangle(bounds, cornerR);
 
-            // Yellow-green accent stripe at top
-            g.setColour(juce::Colour(0xFF88AA22));
-            g.fillRect(0.0f, 0.0f, W, 5.0f);
+            // Yellow-green top stripe
+            g.setColour(juce::Colour(0xFFAACC22));
+            g.fillRect(0.0f, 0.0f, W, 36.0f);
 
-            // "ssl" bold at bottom
-            g.setColour(juce::Colour(0xFF444440));
-            g.setFont(juce::Font(12.0f, juce::Font::bold));
-            g.drawText("ssl", 8, (int) H - 28, (int) W - 16, 14,
-                       juce::Justification::centredLeft);
+            // "ssl" bold text
+            g.setColour(juce::Colour(0xFF111111));
+            g.setFont(juce::Font(14.0f, juce::Font::bold));
+            g.drawText("ssl", 8, 2, 50, 20, juce::Justification::centredLeft);
 
-            // "G-BUS COMP" smaller text below
-            g.setColour(juce::Colour(0xFF888880));
+            // "G-MASTER BUS COMP" small text
+            g.setColour(juce::Colour(0xFF111111).withAlpha(0.8f));
             g.setFont(juce::Font(8.0f));
-            g.drawText("G-BUS COMP", 8, (int) H - 15, (int) W - 16, 12,
-                       juce::Justification::centredLeft);
+            g.drawText("G-MASTER BUS COMP", 8, 20, (int) W - 16, 14, juce::Justification::centredLeft);
 
-            // Border
+            // GR meter border (yellow-green)
+            {
+                int grY = (int) H - 100;
+                g.setColour(juce::Colour(0xFFAACC22).withAlpha(0.6f));
+                g.drawRect(4, grY - 2, (int) W - 8, 96, 1);
+            }
+
+            // Panel border (medium gray)
             g.setColour(juce::Colour(0xFFAAAAAA));
             g.drawRoundedRectangle(bounds.reduced(0.5f), cornerR, 1.0f);
             break;
@@ -606,19 +766,26 @@ void StageComponent::paint(juce::Graphics& g)
         case CompressorModel::ModelManual:
         default:
         {
-            // Dark panel with model-colour accent stripe
             juce::ColourGradient bg(
-                CustomLookAndFeel::panelBg(), 0.0f, 0.0f,
-                CustomLookAndFeel::panelBg().darker(0.15f), 0.0f, H,
+                juce::Colour(0xFF1C1C26), 0.0f, 0.0f,
+                juce::Colour(0xFF14141E), 0.0f, H,
                 false);
             g.setGradientFill(bg);
             g.fillRoundedRectangle(bounds, cornerR);
 
+            // Dark top border stripe
+            g.setColour(juce::Colour(0xFF2A2A38));
+            g.fillRect(0.0f, 0.0f, W, 36.0f);
+
+            // "MANUAL" text
+            g.setColour(juce::Colour(0xFF888888));
+            g.setFont(juce::Font(11.0f, juce::Font::bold));
+            g.drawText("MANUAL", 0, 0, (int) W, 36, juce::Justification::centred);
+
             // Model accent stripe
-            g.setColour(getModelColour(model).withAlpha(0.7f));
+            g.setColour(getModelColour(CompressorModel::ModelManual).withAlpha(0.5f));
             g.fillRect(0.0f, 0.0f, W, 3.0f);
 
-            // Border
             g.setColour(CustomLookAndFeel::panelBorder());
             g.drawRoundedRectangle(bounds.reduced(0.5f), cornerR, 1.0f);
             break;
@@ -627,57 +794,35 @@ void StageComponent::paint(juce::Graphics& g)
 }
 
 // ---------------------------------------------------------------------------
-// resized — layout
+// resized — model-specific layouts
 // ---------------------------------------------------------------------------
 
 void StageComponent::resized()
 {
-    auto bounds = getLocalBounds().reduced(6, 4);
+    const int W = getWidth();
+    const int H = getHeight();
+    const int pad = 8;
 
-    // --- Header row ---
-    auto headerRow = bounds.removeFromTop(22);
-    stageLabel.setBounds(headerRow.removeFromLeft(60));
-    enableButton.setBounds(headerRow.removeFromRight(34).withSizeKeepingCentre(34, 18));
+    auto model = static_cast<CompressorModel>(modelBox.getSelectedItemIndex());
 
-    bounds.removeFromTop(2);
-
-    // --- Model selector ---
-    modelBox.setBounds(bounds.removeFromTop(22));
-    bounds.removeFromTop(4);
-
-    // At this point bounds is the content area (approx 364px × 198px)
-
-    int modelIdx = modelBox.getSelectedId() - 1;
-    CompressorModel model = CompressorModel::ModelManual;
-    if (modelIdx >= 0 && modelIdx < static_cast<int>(CompressorModel::NumModels))
-        model = static_cast<CompressorModel>(modelIdx);
+    // Header strip common to all models (inside the top 36px stripe)
+    stageLabel .setBounds(pad, 4, 70, 16);
+    enableButton.setBounds(W - pad - 30, 8, 30, 18);
+    modelBox   .setBounds(pad, 22, W - pad * 2, 14);
 
     const int textBoxH = 14;
     const int labelH   = 12;
     const int gap      = 2;
 
-    // Slider and label arrays for convenience
-    juce::Slider* sliders[] = {
-        &thresholdSlider, &ratioSlider,
-        &attackSlider,    &releaseSlider,
-        &kneeSlider,      &mixSlider
-    };
-    juce::Label* labels[] = {
-        &thresholdLabel, &ratioLabel,
-        &attackLabel,    &releaseLabel,
-        &kneeLabel,      &mixLabel
-    };
-
     auto placeKnob = [&](juce::Slider& sl, juce::Label& lbl,
                          int cellX, int cellY, int cellW, int cellH,
-                         int knobSize)
+                         int ks)
     {
-        const int totalH  = knobSize + textBoxH + gap + labelH;
+        const int totalH  = ks + textBoxH + gap + labelH;
         const int centreX = cellX + cellW / 2;
         const int startY  = cellY + (cellH - totalH) / 2;
-
-        sl .setBounds(centreX - knobSize / 2, startY, knobSize, knobSize + textBoxH);
-        lbl.setBounds(centreX - knobSize / 2, startY + knobSize + textBoxH + gap, knobSize, labelH);
+        sl .setBounds(centreX - ks / 2, startY, ks, ks + textBoxH);
+        lbl.setBounds(centreX - ks / 2, startY + ks + textBoxH + gap, ks, labelH);
     };
 
     switch (model)
@@ -685,111 +830,291 @@ void StageComponent::resized()
         // ------------------------------------------------------------------
         case CompressorModel::Model1176:
         {
-            const int innerW = bounds.getWidth();
+            ratioSlider.setVisible(false);
+            ratioLabel .setVisible(false);
+            grMeter    .setVisible(true);
+            grMeter    .setHorizontal(true);
 
-            // GR meter: horizontal strip at top of content area (28px tall)
-            const int grH   = 28;
-            auto grBounds   = bounds.removeFromTop(grH);
-            grMeter.setBounds(grBounds);
-            bounds.removeFromTop(6);
+            // Large SAT (INPUT) knob — top centre, ks=90
+            const int satKS  = 90;
+            const int satY   = 40;
+            placeKnob(satSlider, satLabel,
+                      W / 2 - satKS / 2, satY, satKS, satKS + textBoxH + gap + labelH, satKS);
 
-            // Large knobs area (148px): threshold (left) + mix (right)
-            const int largeAreaH  = 148;
-            auto largeArea        = bounds.removeFromTop(largeAreaH);
-            const int halfW       = innerW / 2;
-            const int largeKnob   = juce::jmin(halfW - 8, largeAreaH - textBoxH - gap - labelH - 4);
+            // Attack + Release side by side, ks=60, y=145
+            const int smallKS  = 60;
+            const int smallY   = 145;
+            const int smallCellW = (W - pad * 2) / 2;
+            placeKnob(attackSlider,  attackLabel,
+                      pad,              smallY, smallCellW, smallKS + textBoxH + gap + labelH, smallKS);
+            placeKnob(releaseSlider, releaseLabel,
+                      pad + smallCellW, smallY, smallCellW, smallKS + textBoxH + gap + labelH, smallKS);
 
-            placeKnob(thresholdSlider, thresholdLabel,
-                      largeArea.getX(),          largeArea.getY(), halfW, largeAreaH, largeKnob);
-            placeKnob(mixSlider, mixLabel,
-                      largeArea.getX() + halfW,  largeArea.getY(), halfW, largeAreaH, largeKnob);
-
-            bounds.removeFromTop(6);
-
-            // Small knobs row: ratio, attack, release, knee (4 equal cells)
-            const int smallAreaH = bounds.getHeight();
-            const int cellW4     = innerW / 4;
-            const int smallKnob  = juce::jmin(cellW4 - 8, smallAreaH - textBoxH - gap - labelH - 4);
-
-            juce::Slider* smallSliders[] = { &ratioSlider, &attackSlider, &releaseSlider, &kneeSlider };
-            juce::Label*  smallLabels[]  = { &ratioLabel,  &attackLabel,  &releaseLabel,  &kneeLabel  };
-
-            for (int i = 0; i < 4; i++)
+            // 5 ratio buttons: y=218..250
             {
-                placeKnob(*smallSliders[i], *smallLabels[i],
-                          bounds.getX() + i * cellW4, bounds.getY(),
-                          cellW4, smallAreaH, smallKnob);
+                numRatioButtons = 5;
+                const int btnAreaX = pad;
+                const int btnAreaY = 218;
+                const int btnAreaW = W - pad * 2;
+                const int btnH     = 32;
+                const int btnW     = (btnAreaW - 4 * 2) / 5; // 2px gaps between
+                for (int i = 0; i < 5; i++)
+                {
+                    ratioButtonRects[i] = {
+                        btnAreaX + i * (btnW + 2),
+                        btnAreaY,
+                        btnW,
+                        btnH
+                    };
+                }
             }
+
+            // Threshold knob — centre, ks=70, y=260
+            const int thrKS = 70;
+            const int thrY  = 260;
+            placeKnob(thresholdSlider, thresholdLabel,
+                      W / 2 - thrKS / 2, thrY, thrKS, thrKS + textBoxH + gap + labelH, thrKS);
+
+            // Mix knob — small, bottom right
+            const int mixKS = 48;
+            placeKnob(mixSlider, mixLabel,
+                      W - pad - mixKS, H - 60, mixKS, mixKS + textBoxH + gap + labelH, mixKS);
+
+            // GR meter: horizontal strip near bottom
+            grMeter.setBounds(pad, H - 50, W - pad * 2, 42);
             break;
         }
 
         // ------------------------------------------------------------------
         case CompressorModel::ModelLA2A:
         {
-            // grMeter is hidden; hide it off-screen
-            grMeter.setBounds(0, -100, 0, 0);
+            ratioSlider.setVisible(true);
+            ratioLabel .setVisible(true);
+            grMeter    .setVisible(false);
+            grMeter    .setBounds(0, -100, 1, 1);
+            numRatioButtons = 0;
 
-            const int innerW     = bounds.getWidth();
-            const int innerH     = bounds.getHeight();
+            // Top 2 small knobs: ATK left, REL right — y=42..118 (ks=60)
+            const int smKS   = 60;
+            const int smCW   = (W - pad * 2) / 2;
+            const int smY    = 42;
+            const int smCH   = smKS + textBoxH + gap + labelH;
+            placeKnob(attackSlider,  attackLabel,  pad,        smY, smCW, smCH, smKS);
+            placeKnob(releaseSlider, releaseLabel, pad + smCW, smY, smCW, smCH, smKS);
 
-            // Top 130px: VU area — no components here, just paint()
-            bounds.removeFromTop(130);
+            // Ratio knob: small, top-right area overlay (hidden by VU visually but still accessible)
+            placeKnob(ratioSlider, ratioLabel,
+                      W - pad - 40, smY, 40, smCH, 40);
 
-            // Small knobs row (80px): ratio, attack, release, knee
-            const int smallH   = 80;
-            auto smallArea     = bounds.removeFromTop(smallH);
-            const int cellW4   = innerW / 4;
-            const int smallKnob = juce::jmin(cellW4 - 8, smallH - textBoxH - gap - labelH - 4);
+            // VU area: y=122..292 — paint() handles drawing, no components
 
-            juce::Slider* smallSliders[] = { &ratioSlider, &attackSlider, &releaseSlider, &kneeSlider };
-            juce::Label*  smallLabels[]  = { &ratioLabel,  &attackLabel,  &releaseLabel,  &kneeLabel  };
+            // Bottom 2 large knobs: THRESHOLD left, SAT right — y=296..390 (ks=80)
+            const int lgKS = 80;
+            const int lgCW = (W - pad * 2) / 2;
+            const int lgY  = 296;
+            const int lgCH = lgKS + textBoxH + gap + labelH;
+            placeKnob(thresholdSlider, thresholdLabel, pad,        lgY, lgCW, lgCH, lgKS);
+            placeKnob(satSlider,       satLabel,       pad + lgCW, lgY, lgCW, lgCH, lgKS);
 
-            for (int i = 0; i < 4; i++)
-            {
-                placeKnob(*smallSliders[i], *smallLabels[i],
-                          smallArea.getX() + i * cellW4, smallArea.getY(),
-                          cellW4, smallH, smallKnob);
-            }
-
-            bounds.removeFromTop(6);
-
-            // Large knobs (remaining): threshold (left), mix (right)
-            const int largeH    = juce::jmax(bounds.getHeight(), 140);
-            const int halfW     = innerW / 2;
-            const int largeKnob = juce::jmin(halfW - 8, largeH - textBoxH - gap - labelH - 4);
-
-            placeKnob(thresholdSlider, thresholdLabel,
-                      bounds.getX(),         bounds.getY(), halfW, bounds.getHeight(), largeKnob);
+            // Mix: small, bottom centre
+            const int mxKS = 40;
             placeKnob(mixSlider, mixLabel,
-                      bounds.getX() + halfW, bounds.getY(), halfW, bounds.getHeight(), largeKnob);
-
-            (void) innerH;
+                      W / 2 - mxKS / 2, H - mxKS - textBoxH - gap - labelH - 4,
+                      mxKS, mxKS + textBoxH + gap + labelH, mxKS);
             break;
         }
 
         // ------------------------------------------------------------------
-        default:  // Destressor, DBX, Neve, SSL, Manual — standard 2×3 grid
+        case CompressorModel::ModelDestressor:
         {
-            // GR meter: right strip
-            auto grStrip = bounds.removeFromRight(20);
-            grMeter.setBounds(grStrip);
-            bounds.removeFromRight(3);
+            grMeter    .setVisible(true);
+            grMeter    .setHorizontal(false);
+            numRatioButtons = 6;
 
-            const int knobAreaW = bounds.getWidth();
-            const int knobAreaH = bounds.getHeight();
-            const int cols      = 2;
-            const int rows      = 3;
-            const int cellW     = knobAreaW / cols;
-            const int cellH     = knobAreaH / rows;
-            const int knobSize  = juce::jmin(cellW - 8, cellH - textBoxH - gap - labelH - 4);
+            ratioSlider.setVisible(false);
+            ratioLabel .setVisible(false);
+
+            // Left column: x=8..104 (width=96), 5 knobs stacked ks=60
+            const int lcX  = 8;
+            const int lcW  = 96;
+            const int ks   = 60;
+            const int kCH  = ks + textBoxH + gap + labelH;
+
+            placeKnob(satSlider,       satLabel,       lcX, 44,  lcW, kCH, ks);
+            placeKnob(thresholdSlider, thresholdLabel, lcX, 108, lcW, kCH, ks);
+            placeKnob(attackSlider,    attackLabel,    lcX, 172, lcW, kCH, ks);
+            placeKnob(releaseSlider,   releaseLabel,   lcX, 236, lcW, kCH, ks);
+            placeKnob(mixSlider,       mixLabel,       lcX, 300, lcW, kCH, ks);
+
+            // Right column: x=112..W-8, ratio buttons stacked
+            {
+                const int rcX  = 112;
+                const int rcW  = W - rcX - 8;
+                const int btnH = 40;
+                const int btnGap = 2;
+                for (int i = 0; i < 6; i++)
+                {
+                    ratioButtonRects[i] = {
+                        rcX,
+                        44 + i * (btnH + btnGap),
+                        rcW,
+                        btnH
+                    };
+                }
+                // GR meter below buttons: y = 44 + 6*(btnH+btnGap) + 4
+                int grY = 44 + 6 * (btnH + btnGap) + 4;
+                grMeter.setBounds(rcX, grY, rcW, H - grY - 8);
+            }
+            break;
+        }
+
+        // ------------------------------------------------------------------
+        case CompressorModel::ModelDBX160:
+        {
+            numRatioButtons = 0;
+            ratioSlider.setVisible(true);
+            ratioLabel .setVisible(true);
+
+            // GR meter uses built-in widget at bottom section
+            grMeter.setVisible(true);
+            grMeter.setHorizontal(true);
+
+            // Top 2 large knobs (ks=80): THR left, RATIO right — y=52..148
+            const int lgKS = 80;
+            const int lgCW = (W - pad * 2) / 2;
+            const int lgCH = lgKS + textBoxH + gap + labelH;
+            placeKnob(thresholdSlider, thresholdLabel, pad,        52, lgCW, lgCH, lgKS);
+            placeKnob(ratioSlider,     ratioLabel,     pad + lgCW, 52, lgCW, lgCH, lgKS);
+
+            // Row 2: SAT centre-left, ATK centre, REL centre-right (ks=58)
+            const int mdKS = 58;
+            const int mdCW = (W - pad * 2) / 3;
+            const int mdCH = mdKS + textBoxH + gap + labelH;
+            placeKnob(satSlider,     satLabel,     pad,              156, mdCW, mdCH, mdKS);
+            placeKnob(attackSlider,  attackLabel,  pad + mdCW,       156, mdCW, mdCH, mdKS);
+            placeKnob(releaseSlider, releaseLabel, pad + mdCW * 2,   156, mdCW, mdCH, mdKS);
+
+            // MIX small knob centred
+            const int mxKS = 44;
+            placeKnob(mixSlider, mixLabel,
+                      W / 2 - mxKS / 2, 236, mxKS, mxKS + textBoxH + gap + labelH, mxKS);
+
+            // GR meter at bottom section
+            grMeter.setBounds(pad, H - 118, W - pad * 2, 110);
+            break;
+        }
+
+        // ------------------------------------------------------------------
+        case CompressorModel::ModelNeve:
+        {
+            numRatioButtons = 0;
+            ratioSlider.setVisible(true);
+            ratioLabel .setVisible(true);
+            grMeter    .setVisible(true);
+            grMeter    .setHorizontal(false);
+
+            // Compressor section: THR + REL side by side, ks=70, y=54..140
+            const int ks1 = 70;
+            const int cw1 = (W - pad * 2) / 2;
+            const int ch1 = ks1 + textBoxH + gap + labelH;
+            placeKnob(thresholdSlider, thresholdLabel, pad,        54, cw1, ch1, ks1);
+            placeKnob(releaseSlider,   releaseLabel,   pad + cw1,  54, cw1, ch1, ks1);
+
+            // RATIO + ATK side by side, ks=60, y=148..220
+            const int ks2 = 60;
+            const int cw2 = (W - pad * 2) / 2;
+            const int ch2 = ks2 + textBoxH + gap + labelH;
+            placeKnob(ratioSlider,  ratioLabel,  pad,        148, cw2, ch2, ks2);
+            placeKnob(attackSlider, attackLabel, pad + cw2,  148, cw2, ch2, ks2);
+
+            // SAT centred, ks=50, y=226..286
+            const int ks3 = 50;
+            placeKnob(satSlider, satLabel,
+                      W / 2 - ks3 / 2, 226, ks3, ks3 + textBoxH + gap + labelH, ks3);
+
+            // MIX small, right side
+            const int mxKS = 44;
+            placeKnob(mixSlider, mixLabel,
+                      W - pad - mxKS, 290, mxKS, mxKS + textBoxH + gap + labelH, mxKS);
+
+            // GR meter: vertical, y=H-88..H-8 (80px tall)
+            grMeter.setBounds(pad, H - 88, W - pad * 2, 80);
+            break;
+        }
+
+        // ------------------------------------------------------------------
+        case CompressorModel::ModelSSL:
+        {
+            numRatioButtons = 0;
+            ratioSlider.setVisible(true);
+            ratioLabel .setVisible(true);
+            grMeter    .setVisible(true);
+            grMeter    .setHorizontal(true);
+
+            // 2×2 grid of medium knobs (ks=70)
+            const int ks  = 70;
+            const int cw  = (W - pad * 2) / 2;
+            const int ch  = ks + textBoxH + gap + labelH;
+            // Row 1: THR left, RATIO right, y=44
+            placeKnob(thresholdSlider, thresholdLabel, pad,       44, cw, ch, ks);
+            placeKnob(ratioSlider,     ratioLabel,     pad + cw,  44, cw, ch, ks);
+            // Row 2: ATK left, REL right, y=138
+            placeKnob(attackSlider,  attackLabel,  pad,      138, cw, ch, ks);
+            placeKnob(releaseSlider, releaseLabel, pad + cw, 138, cw, ch, ks);
+
+            // SAT + MIX side by side, ks=60, y=232
+            const int ks2 = 60;
+            const int cw2 = (W - pad * 2) / 2;
+            const int ch2 = ks2 + textBoxH + gap + labelH;
+            placeKnob(satSlider,  satLabel,  pad,       232, cw2, ch2, ks2);
+            placeKnob(mixSlider,  mixLabel,  pad + cw2, 232, cw2, ch2, ks2);
+
+            // GR meter: horizontal, y=H-100..H-8
+            grMeter.setBounds(pad, H - 100, W - pad * 2, 92);
+            break;
+        }
+
+        // ------------------------------------------------------------------
+        case CompressorModel::ModelManual:
+        default:
+        {
+            numRatioButtons = 0;
+            ratioSlider.setVisible(true);
+            ratioLabel .setVisible(true);
+            grMeter    .setVisible(true);
+            grMeter    .setHorizontal(false);
+
+            // GR meter right strip
+            grMeter.setBounds(W - 20, 40, 18, H - 48);
+
+            // 2×3 grid of knobs
+            const int gridX = pad;
+            const int gridY = 40;
+            const int gridW = W - pad * 2 - 22;
+            const int gridH = H - gridY - 8;
+            const int cols  = 2;
+            const int rows  = 3;
+            const int cw    = gridW / cols;
+            const int ch    = gridH / rows;
+            const int ks    = juce::jmin(cw - 8, ch - textBoxH - gap - labelH - 4);
+
+            juce::Slider* sliders[] = {
+                &thresholdSlider, &ratioSlider,
+                &attackSlider,    &releaseSlider,
+                &satSlider,       &mixSlider
+            };
+            juce::Label* labels[] = {
+                &thresholdLabel, &ratioLabel,
+                &attackLabel,    &releaseLabel,
+                &satLabel,       &mixLabel
+            };
 
             for (int i = 0; i < 6; i++)
             {
                 int col = i % cols;
                 int row = i / cols;
                 placeKnob(*sliders[i], *labels[i],
-                          bounds.getX() + col * cellW, bounds.getY() + row * cellH,
-                          cellW, cellH, knobSize);
+                          gridX + col * cw, gridY + row * ch, cw, ch, ks);
             }
             break;
         }
