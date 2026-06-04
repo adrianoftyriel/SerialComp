@@ -34,6 +34,11 @@ static void drawScrew(juce::Graphics& g, float cx, float cy, float r = 4.5f)
     g.drawLine(cx - slotLen, cy, cx + slotLen, cy, slotW);
 }
 
+static void setKnobStyle(juce::Slider& s, int style)
+{
+    s.getProperties().set("knobStyle", style);
+}
+
 static bool isLightPanel(CompressorModel m)
 {
     return (m == CompressorModel::Model1176
@@ -48,45 +53,89 @@ static juce::Colour panelTextColour(CompressorModel m)
 }
 
 static void drawRatioButton(juce::Graphics& g, juce::Rectangle<int> r, bool active,
-                            juce::Colour accent, const juce::String& label)
+                            juce::Colour accent, const juce::String& label, int style = 0)
 {
-    const float cornerR = 3.0f;
     auto rf = r.toFloat();
 
-    if (active)
+    if (style == 1)
     {
-        // Outer glow
-        g.setColour(accent.withAlpha(0.35f));
-        g.fillRoundedRectangle(rf.expanded(2.0f), cornerR + 1.0f);
-
-        g.setColour(accent);
-        g.fillRoundedRectangle(rf, cornerR);
-
-        // LED highlight top
-        juce::ColourGradient highlight(juce::Colours::white.withAlpha(0.4f), rf.getX(), rf.getY(),
-                                       juce::Colours::transparentBlack, rf.getX(), rf.getCentreY(),
-                                       false);
-        g.setGradientFill(highlight);
-        g.fillRoundedRectangle(rf, cornerR);
-
-        g.setColour(accent.brighter(0.5f));
-        g.drawRoundedRectangle(rf.reduced(0.5f), cornerR, 1.0f);
-
-        g.setColour(juce::Colours::black.withAlpha(0.9f));
+        // Style 1: 1176 brushed-metal pushbuttons
+        const float cr = 3.0f;
+        if (active)
+        {
+            // Pressed: darker inset
+            juce::ColourGradient mg(juce::Colour(0xFF505050), rf.getX(), rf.getY(),
+                                     juce::Colour(0xFF383838), rf.getX(), rf.getBottom(), false);
+            g.setGradientFill(mg);
+            g.fillRoundedRectangle(rf, cr);
+            // Amber LED indicator dot at top-centre
+            const float dotR = 3.5f;
+            g.setColour(juce::Colour(0xFFFF8800).withAlpha(0.95f));
+            g.fillEllipse(rf.getCentreX() - dotR, rf.getY() + 2.5f, dotR*2.0f, dotR*2.0f);
+            g.setColour(juce::Colour(0xFFFFCC44).withAlpha(0.5f)); // glow
+            g.fillEllipse(rf.getCentreX() - dotR*2.0f, rf.getY() + 0.5f, dotR*4.0f, dotR*3.5f);
+        }
+        else
+        {
+            // Raised metal look
+            juce::ColourGradient mg(juce::Colour(0xFF909090), rf.getX(), rf.getY(),
+                                     juce::Colour(0xFF606060), rf.getX(), rf.getBottom(), false);
+            g.setGradientFill(mg);
+            g.fillRoundedRectangle(rf, cr);
+            // Unlit LED dot
+            const float dotR = 3.5f;
+            g.setColour(juce::Colour(0xFF442200));
+            g.fillEllipse(rf.getCentreX() - dotR, rf.getY() + 2.5f, dotR*2.0f, dotR*2.0f);
+        }
+        // Chamfered border
+        g.setColour(active ? juce::Colour(0xFF303030) : juce::Colour(0xFF404040));
+        g.drawRoundedRectangle(rf.reduced(0.5f), cr, 1.0f);
+        // Number label in bottom half
+        const auto labelR = r.withTrimmedTop(r.getHeight() / 2);
+        g.setColour(active ? juce::Colours::black : juce::Colour(0xFF111111));
+        g.setFont(juce::Font(9.0f, juce::Font::bold));
+        g.drawText(label, labelR, juce::Justification::centred);
     }
     else
     {
-        g.setColour(juce::Colour(0xFF222222));
-        g.fillRoundedRectangle(rf, cornerR);
+        // Style 0 (default): Distressor LED lamp buttons
+        const float cornerR = 3.0f;
 
-        g.setColour(juce::Colour(0xFF444444));
-        g.drawRoundedRectangle(rf.reduced(0.5f), cornerR, 1.0f);
+        if (active)
+        {
+            // Outer glow
+            g.setColour(accent.withAlpha(0.35f));
+            g.fillRoundedRectangle(rf.expanded(2.0f), cornerR + 1.0f);
 
-        g.setColour(juce::Colour(0xFF888888));
+            g.setColour(accent);
+            g.fillRoundedRectangle(rf, cornerR);
+
+            // LED highlight top
+            juce::ColourGradient highlight(juce::Colours::white.withAlpha(0.4f), rf.getX(), rf.getY(),
+                                           juce::Colours::transparentBlack, rf.getX(), rf.getCentreY(),
+                                           false);
+            g.setGradientFill(highlight);
+            g.fillRoundedRectangle(rf, cornerR);
+
+            g.setColour(accent.brighter(0.5f));
+            g.drawRoundedRectangle(rf.reduced(0.5f), cornerR, 1.0f);
+
+            g.setColour(juce::Colours::black.withAlpha(0.9f));
+        }
+        else
+        {
+            g.setColour(juce::Colour(0xFF222222));
+            g.fillRoundedRectangle(rf, cornerR);
+
+            g.setColour(juce::Colour(0xFF444444));
+            g.drawRoundedRectangle(rf.reduced(0.5f), cornerR, 1.0f);
+
+            g.setColour(juce::Colour(0xFF888888));
+        }
+
+        g.setFont(juce::Font(9.5f, juce::Font::bold));
+        g.drawText(label, r, juce::Justification::centred);
     }
-
-    g.setFont(juce::Font(9.5f, juce::Font::bold));
-    g.drawText(label, r, juce::Justification::centred);
 }
 
 // ---------------------------------------------------------------------------
@@ -310,6 +359,42 @@ void StageComponent::updateModelAppearance()
         s->setColour(juce::Slider::rotarySliderOutlineColourId, mc.track);
     }
 
+    // After the per-slider fill/track colour loop, set knob styles:
+    switch (model)
+    {
+        case CompressorModel::Model1176:
+            for (auto* s : { &thresholdSlider, &ratioSlider, &attackSlider,
+                             &releaseSlider,   &satSlider,   &mixSlider })
+                setKnobStyle(*s, 1);  // vintage-bakelite
+            break;
+        case CompressorModel::ModelLA2A:
+            for (auto* s : { &thresholdSlider, &ratioSlider, &attackSlider,
+                             &releaseSlider,   &satSlider,   &mixSlider })
+                setKnobStyle(*s, 2);  // la2a-cream
+            break;
+        case CompressorModel::ModelDBX160:
+            for (auto* s : { &thresholdSlider, &ratioSlider, &attackSlider,
+                             &releaseSlider,   &satSlider,   &mixSlider })
+                setKnobStyle(*s, 4);  // dbx-rubber
+            break;
+        case CompressorModel::ModelNeve:
+        case CompressorModel::ModelSSL:
+            for (auto* s : { &thresholdSlider, &ratioSlider, &attackSlider,
+                             &releaseSlider,   &satSlider,   &mixSlider })
+                setKnobStyle(*s, 3);  // neve-console
+            break;
+        case CompressorModel::ModelDestressor:
+            for (auto* s : { &thresholdSlider, &ratioSlider, &attackSlider,
+                             &releaseSlider,   &satSlider,   &mixSlider })
+                setKnobStyle(*s, 1);  // vintage-bakelite (with teal accent already set)
+            break;
+        default:
+            for (auto* s : { &thresholdSlider, &ratioSlider, &attackSlider,
+                             &releaseSlider,   &satSlider,   &mixSlider })
+                setKnobStyle(*s, 0);  // default
+            break;
+    }
+
     juce::Colour txtCol = panelTextColour(model);
     juce::Label* labels[] = {
         &thresholdLabel, &ratioLabel, &attackLabel,
@@ -327,11 +412,16 @@ void StageComponent::updateModelAppearance()
     if (model == CompressorModel::Model1176)
     {
         grMeter.setHorizontal(true);
-        grMeter.setVisible(true);
+        grMeter.setVisible(false);  // VU needle drawn in paint()
     }
     else if (model == CompressorModel::ModelLA2A)
     {
         grMeter.setVisible(false);
+    }
+    else if (model == CompressorModel::ModelNeve)
+    {
+        grMeter.setHorizontal(false);
+        grMeter.setVisible(false);  // VU needle drawn in paint()
     }
     else
     {
@@ -359,7 +449,9 @@ void StageComponent::setGainReduction(float dB)
     currentGainReductionDB = dB;
     grMeter.setGainReduction(dB);
     auto model = static_cast<CompressorModel>(modelBox.getSelectedItemIndex());
-    if (model == CompressorModel::ModelLA2A)
+    if (model == CompressorModel::ModelLA2A
+     || model == CompressorModel::Model1176
+     || model == CompressorModel::ModelNeve)
         repaint();
 }
 
@@ -453,8 +545,90 @@ void StageComponent::paint(juce::Graphics& g)
                 for (int i = 0; i < numRatioButtons && i < 5; i++)
                 {
                     bool active = (std::abs((float) ratioSlider.getValue() - ratioVals[i]) < 0.5f);
-                    drawRatioButton(g, ratioButtonRects[i], active, accent, ratioLabels[i]);
+                    drawRatioButton(g, ratioButtonRects[i], active, accent, ratioLabels[i], 1);
                 }
+            }
+
+            // VU needle meter for 1176 (bounds match resized() layout)
+            {
+                const int pad = 8;
+                auto mR = juce::Rectangle<float>((float)pad, (float)(H - 104),
+                                                  (float)(W - pad*2), 94.0f);
+
+                // Black face with silver border
+                g.setColour(juce::Colour(0xFF080808));
+                g.fillRoundedRectangle(mR, 4.0f);
+                g.setColour(juce::Colour(0xFF909090));
+                g.drawRoundedRectangle(mR.reduced(0.5f), 4.0f, 1.5f);
+
+                // "GAIN REDUCTION" label inside
+                g.setColour(juce::Colour(0xFF888888));
+                g.setFont(juce::Font(7.5f, juce::Font::bold));
+                g.drawText("GAIN REDUCTION", mR.removeFromTop(13).toNearestInt(),
+                           juce::Justification::centred);
+
+                // Pivot at bottom centre
+                const float pivotX = mR.getCentreX();
+                const float pivotY = mR.getBottom() - 6.0f;
+                const float arcR   = mR.getHeight() * 1.35f;
+
+                // Scale arc: sweeps from right-upward (0 GR) to left-upward (max GR)
+                // angMin = 0 GR (needle at ~-40° from vertical = rightward)
+                // angMax = 20 dB GR (needle at ~+40° from vertical = leftward)
+                const float angMin = -0.70f;   // radians from 12-o-clock, right side
+                const float angMax =  0.70f;   // radians from 12-o-clock, left side
+                // NOTE: sin(angMin)<0 → right, sin(angMax)>0 → left; BUT on screen:
+                //       x = pivotX + r*sin(a)  → positive sin = rightward
+                //       y = pivotY - r*cos(a)  → negative cos at small |a| = upward
+                // We want 0 GR = needle points to the RIGHT → angle = +angMin_right
+                // Let's define: angle = +0.65 at 0 GR (right side), -0.65 at max GR (left)
+                const float angZero =  0.65f;
+                const float angFull = -0.65f;
+
+                // Track arc
+                juce::Path trackArc;
+                trackArc.addArc(pivotX - arcR, pivotY - arcR, arcR*2.0f, arcR*2.0f,
+                                juce::MathConstants<float>::pi + angFull,
+                                juce::MathConstants<float>::pi + angZero, true);
+                g.setColour(juce::Colour(0xFF333333));
+                g.strokePath(trackArc, juce::PathStrokeType(1.2f));
+
+                // Scale marks and labels along the arc
+                g.setFont(juce::Font(6.5f));
+                const float grMarks[] = { 0.0f, -2.0f, -4.0f, -7.0f, -10.0f, -14.0f, -20.0f };
+                const char* grLabels[] = { "0", "2", "4", "7", "10", "14", "20" };
+                for (int mi = 0; mi < 7; mi++)
+                {
+                    float frac = juce::jmap(grMarks[mi], 0.0f, -20.0f, 0.0f, 1.0f);
+                    float tickAng = angZero + frac * (angFull - angZero);
+                    float tx = pivotX + arcR * std::sin(tickAng);
+                    float ty = pivotY - arcR * std::cos(tickAng);
+                    float tx2 = pivotX + (arcR - 7.0f) * std::sin(tickAng);
+                    float ty2 = pivotY - (arcR - 7.0f) * std::cos(tickAng);
+                    g.setColour(juce::Colour(0xFFAAAAAA));
+                    g.drawLine(tx, ty, tx2, ty2, 1.0f);
+                    // Label at selected marks (0, -7, -14, -20)
+                    if (mi == 0 || mi == 3 || mi == 5 || mi == 6)
+                    {
+                        float lx = pivotX + (arcR - 15.0f) * std::sin(tickAng);
+                        float ly = pivotY - (arcR - 15.0f) * std::cos(tickAng);
+                        g.setColour(juce::Colour(0xFF999999));
+                        g.drawText(grLabels[mi],
+                                   (int)(lx - 8), (int)(ly - 5), 16, 10,
+                                   juce::Justification::centred);
+                    }
+                }
+
+                // Needle
+                float grFrac = juce::jlimit(0.0f, 1.0f, currentGainReductionDB / 20.0f);
+                float needleAng = angZero + grFrac * (angFull - angZero);
+                float nx = pivotX + (arcR - 4.0f) * std::sin(needleAng);
+                float ny = pivotY - (arcR - 4.0f) * std::cos(needleAng);
+                g.setColour(juce::Colour(0xFFEE8833));
+                g.drawLine(pivotX, pivotY, nx, ny, 1.8f);
+                // Pivot dot
+                g.setColour(juce::Colour(0xFF808080));
+                g.fillEllipse(pivotX - 3.5f, pivotY - 3.5f, 7.0f, 7.0f);
             }
 
             // Border
@@ -745,11 +919,62 @@ void StageComponent::paint(juce::Graphics& g)
             drawScrew(g, 8.0f,     H - 8.0f);
             drawScrew(g, W - 8.0f, H - 8.0f);
 
-            // GR meter border accent
+            // Neve VU meter overlay (drawn over grMeter bounds)
             {
-                int grY = (int) H - 88;
-                g.setColour(juce::Colour(0xFFCC5500).withAlpha(0.5f));
-                g.drawRect(4, grY - 2, (int) W - 8, 84, 1);
+                const int pad = 8;
+                auto mR = juce::Rectangle<float>((float)pad, (float)(H - 90),
+                                                  (float)(W - pad*2), 82.0f);
+                g.setColour(juce::Colour(0xFF0C0C0C));
+                g.fillRoundedRectangle(mR, 3.0f);
+                g.setColour(juce::Colour(0xFFCC5500).withAlpha(0.8f));
+                g.drawRoundedRectangle(mR.reduced(0.5f), 3.0f, 1.5f);
+
+                const float pivotX = mR.getCentreX();
+                const float pivotY = mR.getBottom() - 5.0f;
+                const float arcR   = mR.getHeight() * 1.30f;
+                const float angZero =  0.60f;
+                const float angFull = -0.60f;
+
+                // Track
+                juce::Path track;
+                track.addArc(pivotX - arcR, pivotY - arcR, arcR*2.0f, arcR*2.0f,
+                             juce::MathConstants<float>::pi + angFull,
+                             juce::MathConstants<float>::pi + angZero, true);
+                g.setColour(juce::Colour(0xFF2A2A2A));
+                g.strokePath(track, juce::PathStrokeType(1.2f));
+
+                // Scale marks (0, -3, -6, -10, -20)
+                g.setFont(juce::Font(6.0f));
+                const float gm[] = { 0.0f, -3.0f, -6.0f, -10.0f, -20.0f };
+                const char* gl[] = { "0", "3", "6", "10", "20" };
+                for (int mi = 0; mi < 5; mi++)
+                {
+                    float frac = juce::jmap(gm[mi], 0.0f, -20.0f, 0.0f, 1.0f);
+                    float ta = angZero + frac * (angFull - angZero);
+                    float tx  = pivotX + arcR * std::sin(ta);
+                    float ty  = pivotY - arcR * std::cos(ta);
+                    float tx2 = pivotX + (arcR - 6.0f) * std::sin(ta);
+                    float ty2 = pivotY - (arcR - 6.0f) * std::cos(ta);
+                    g.setColour(juce::Colour(0xFF886644));
+                    g.drawLine(tx, ty, tx2, ty2, 1.0f);
+                    if (mi == 0 || mi == 2 || mi == 4)
+                    {
+                        float lx = pivotX + (arcR - 13.0f) * std::sin(ta);
+                        float ly = pivotY - (arcR - 13.0f) * std::cos(ta);
+                        g.setColour(juce::Colour(0xFF886644));
+                        g.drawText(gl[mi], (int)(lx-7),(int)(ly-4), 14, 9, juce::Justification::centred);
+                    }
+                }
+
+                // Needle
+                float grFrac  = juce::jlimit(0.0f, 1.0f, currentGainReductionDB / 20.0f);
+                float nAng    = angZero + grFrac * (angFull - angZero);
+                float nx = pivotX + (arcR - 4.0f) * std::sin(nAng);
+                float ny = pivotY - (arcR - 4.0f) * std::cos(nAng);
+                g.setColour(juce::Colour(0xFFEE6600));
+                g.drawLine(pivotX, pivotY, nx, ny, 1.6f);
+                g.setColour(juce::Colour(0xFF555555));
+                g.fillEllipse(pivotX-3.0f, pivotY-3.0f, 6.0f, 6.0f);
             }
 
             // Border
@@ -874,7 +1099,7 @@ void StageComponent::resized()
             thresholdSlider.setVisible(false); thresholdLabel.setVisible(false);
             ratioSlider    .setVisible(false); ratioLabel    .setVisible(false);
             mixSlider      .setVisible(false); mixLabel      .setVisible(false);
-            grMeter.setVisible(true);
+            grMeter.setVisible(false);
             grMeter.setHorizontal(true);
             numRatioButtons = 5;
 
@@ -1009,7 +1234,7 @@ void StageComponent::resized()
             // No mix knob on the original hardware
             mixSlider.setVisible(false); mixLabel.setVisible(false);
             numRatioButtons = 0;
-            grMeter.setVisible(true);
+            grMeter.setVisible(false);  // VU needle drawn in paint()
             grMeter.setHorizontal(false);
 
             // COMPRESSOR section: THR + RECOVERY side by side, ks=70, y=52
