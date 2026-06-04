@@ -11,25 +11,26 @@ public:
 
     void paint(juce::Graphics& g) override;
     void resized() override;
+    void mouseDown(const juce::MouseEvent& e) override;
 
     void setActive(bool active);
     void setGainReduction(float dB);
 
 private:
     juce::AudioProcessorValueTreeState& apvts;
-    int stageIndex;
+    int  stageIndex;
     bool isActive = true;
 
     juce::ToggleButton enableButton { "ON" };
     juce::ComboBox     modelBox;
 
-    // 6 rotary knobs (input/makeup gain moved to global controls)
+    // 6 rotary knobs: threshold, ratio, attack, release, saturation, mix
     juce::Slider thresholdSlider, ratioSlider, attackSlider, releaseSlider;
-    juce::Slider kneeSlider, mixSlider;
+    juce::Slider satSlider, mixSlider;
 
-    // Labels below each knob
+    // Labels
     juce::Label thresholdLabel, ratioLabel, attackLabel, releaseLabel;
-    juce::Label kneeLabel, mixLabel;
+    juce::Label satLabel, mixLabel;
     juce::Label stageLabel;
 
     GainReductionMeter grMeter;
@@ -39,13 +40,17 @@ private:
     using ComboBoxAttachment = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
 
     std::unique_ptr<SliderAttachment>   thresholdAtt, ratioAtt, attackAtt, releaseAtt;
-    std::unique_ptr<SliderAttachment>   kneeAtt, mixAtt;
+    std::unique_ptr<SliderAttachment>   satAtt, mixAtt;
     std::unique_ptr<ButtonAttachment>   enableAtt;
     std::unique_ptr<ComboBoxAttachment> modelAtt;
 
     float currentGainReductionDB = 0.0f;
-    void updateModelAppearance();
 
+    // Hit-test rectangles for drawn ratio buttons (1176 and Distressor)
+    juce::Rectangle<int> ratioButtonRects[6];
+    int  numRatioButtons = 0;
+
+    void updateModelAppearance();
     void setupSlider(juce::Slider& s, juce::Label& lbl, const juce::String& text);
     void applyModelDefaults();
     juce::String pid(const juce::String& param) const;

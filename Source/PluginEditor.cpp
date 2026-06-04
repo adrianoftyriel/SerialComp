@@ -207,8 +207,8 @@ void SerialCompEditor::paint(juce::Graphics& g)
 
     g.setColour(CustomLookAndFeel::textSecond().withAlpha(0.35f));
     g.setFont(juce::Font(9.0f));
-    g.drawText("CanOps Audio  v1.0",
-               getWidth() - 140, HEADER_H - 16, 135, 12,
+    g.drawText("CanOps Audio  v0.3  \xc2\xa9 James Wallace",
+               getWidth() - 230, HEADER_H - 16, 225, 12,
                juce::Justification::centredRight);
 }
 

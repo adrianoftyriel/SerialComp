@@ -59,7 +59,7 @@ private:
         std::atomic<float>* ratio     = nullptr;
         std::atomic<float>* attack    = nullptr;
         std::atomic<float>* release   = nullptr;
-        std::atomic<float>* knee      = nullptr;
+        std::atomic<float>* sat       = nullptr;
         std::atomic<float>* mix       = nullptr;
     };
     StageParamPtrs      stageParams[MAX_STAGES];

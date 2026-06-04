@@ -11,7 +11,7 @@ SerialCompProcessor::createParameterLayout()
     juce::AudioProcessorValueTreeState::ParameterLayout layout;
 
     const juce::StringArray modelChoices =
-        { "1176", "LA-2A", "Destressor", "DBX 160A", "Neve 33609", "SSL G-Bus", "Manual" };
+        { "1176", "LA-2A", "Destressor", "DBX 160", "Neve 33609", "SSL G-Bus", "Manual" };
 
     for (int i = 0; i < MAX_STAGES; i++)
     {
@@ -54,10 +54,10 @@ SerialCompProcessor::createParameterLayout()
             200.0f));
 
         layout.add(std::make_unique<juce::AudioParameterFloat>(
-            juce::ParameterID(px + "knee", 1),
-            name + "Knee",
-            juce::NormalisableRange<float>(0.0f, 12.0f, 0.1f),
-            2.0f));
+            juce::ParameterID(px + "sat", 1),
+            name + "Saturation",
+            juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f),
+            0.0f));
 
         layout.add(std::make_unique<juce::AudioParameterFloat>(
             juce::ParameterID(px + "mix", 1),
@@ -113,7 +113,7 @@ void SerialCompProcessor::cacheParamPointers()
         p.ratio     = apvts.getRawParameterValue(px + "ratio");
         p.attack    = apvts.getRawParameterValue(px + "attack");
         p.release   = apvts.getRawParameterValue(px + "release");
-        p.knee      = apvts.getRawParameterValue(px + "knee");
+        p.sat       = apvts.getRawParameterValue(px + "sat");
         p.mix       = apvts.getRawParameterValue(px + "mix");
     }
     numStagesParam  = apvts.getRawParameterValue("numStages");
@@ -150,7 +150,7 @@ void SerialCompProcessor::syncStageParameters(int i)
     s.setRatio    (p.ratio->load());
     s.setAttack   (p.attack->load());
     s.setRelease  (p.release->load());
-    s.setKnee     (p.knee->load());
+    s.setSaturation(p.sat->load());
     s.setMix      (p.mix->load());
 }
 
