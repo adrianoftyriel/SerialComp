@@ -71,8 +71,11 @@ private:
     void syncStageParameters(int stageIdx);
 
     // Ballistic envelope state (audio thread only)
-    float inputEnvLinear  = 0.0f;
-    float outputEnvLinear = 0.0f;
+    float  inputEnvLinear  = 0.0f;
+    float  outputEnvLinear = 0.0f;
+    double currentSampleRate = 44100.0;
+    float  prevInputGain   = 1.0f;
+    float  prevMakeupGain  = 1.0f;
 
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 

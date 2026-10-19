@@ -2,19 +2,30 @@
 #include <JuceHeader.h>
 
 // ---------------------------------------------------------------------------
-// Lock-free circular buffer for audio capture.
-// Push called on the audio thread; read on the UI thread.
+// Lock-free capture of peak history.
+// The audio thread folds samples into fixed-size peak bins (BIN_SIZE samples
+// each) and publishes one bin at a time; the UI thread only ever reads the
+// small bin ring, so a repaint costs O(display points), not O(window samples).
 // ---------------------------------------------------------------------------
 class WaveformBuffer
 {
 public:
-    // 2^20 = 1 048 576 samples ≈ 23.8 s at 44 100 Hz / 21.8 s at 48 000 Hz.
-    static constexpr int SIZE = 1048576;
+    static constexpr int BIN_SIZE = 256;
+    // 2^14 bins * 256 samples = 4 194 304 samples ≈ 21.8 s at 192 kHz.
+    static constexpr int NUM_BINS = 16384;
 
+    // Audio thread only.
     void push(float sample) noexcept
     {
-        buf[writePos.load(std::memory_order_relaxed) & (SIZE - 1)] = sample;
-        writePos.fetch_add(1, std::memory_order_release);
+        accPeak = juce::jmax(accPeak, std::abs(sample));
+        if (++accCount == BIN_SIZE)
+        {
+            const auto w = writePos.load(std::memory_order_relaxed);
+            bins[w & (NUM_BINS - 1)] = accPeak;
+            writePos.store(w + 1, std::memory_order_release);
+            accPeak  = 0.0f;
+            accCount = 0;
+        }
     }
 
     // Returns the peak absolute value in each of out.size() evenly-spaced
@@ -24,9 +35,9 @@ public:
         const int n = static_cast<int>(out.size());
         if (n == 0) return;
 
-        const int end    = static_cast<int>(writePos.load(std::memory_order_acquire));
-        const int avail  = juce::jmin(end, SIZE);
-        const int window = juce::jmin(windowSamples, avail);
+        const auto end    = writePos.load(std::memory_order_acquire);
+        const int  avail  = static_cast<int>(juce::jmin<uint64_t>(end, NUM_BINS));
+        const int  window = juce::jmin((windowSamples + BIN_SIZE - 1) / BIN_SIZE, avail);
 
         if (window == 0)
         {
@@ -34,8 +45,8 @@ public:
             return;
         }
 
-        const int   start = end - window;
-        const float binF  = static_cast<float>(window) / static_cast<float>(n);
+        const uint64_t start = end - static_cast<uint64_t>(window);
+        const float    binF  = static_cast<float>(window) / static_cast<float>(n);
 
         for (int i = 0; i < n; i++)
         {
@@ -45,15 +56,17 @@ public:
 
             float peak = 0.0f;
             for (int j = binStart; j < binEnd && j < window; j++)
-                peak = juce::jmax(peak, std::abs(buf[(start + j) & (SIZE - 1)]));
+                peak = juce::jmax(peak, bins[(start + static_cast<uint64_t>(j)) & (NUM_BINS - 1)]);
 
             out[static_cast<size_t>(i)] = peak;
         }
     }
 
 private:
-    float buf[SIZE] = {};
-    std::atomic<int> writePos { 0 };
+    float bins[NUM_BINS] = {};
+    std::atomic<uint64_t> writePos { 0 };
+    float accPeak  = 0.0f;   // audio-thread-only accumulator
+    int   accCount = 0;
 };
 
 // ---------------------------------------------------------------------------

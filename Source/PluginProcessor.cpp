@@ -128,6 +128,12 @@ void SerialCompProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
     for (auto& stage : stages)
         stage.prepare(sampleRate, samplesPerBlock);
+
+    currentSampleRate = sampleRate;
+    prevInputGain     = juce::Decibels::decibelsToGain(inputGainParam->load());
+    prevMakeupGain    = juce::Decibels::decibelsToGain(makeupGainParam->load());
+    inputEnvLinear    = 0.0f;
+    outputEnvLinear   = 0.0f;
 }
 
 void SerialCompProcessor::releaseResources()
@@ -167,65 +173,65 @@ void SerialCompProcessor::processBlock(juce::AudioBuffer<float>& buffer,
 
     if (numSamples == 0 || numChannels == 0) return;
 
-    const int numStages = static_cast<int>(numStagesParam->load());
+    const int numStages = juce::jlimit(0, MAX_STAGES, static_cast<int>(numStagesParam->load()));
 
-    auto monoSample = [&](int s) -> float {
-        return numChannels >= 2
-            ? (buffer.getSample(0, s) + buffer.getSample(1, s)) * 0.5f
-            : buffer.getSample(0, s);
-    };
+    // Meter ballistics in seconds, so they don't depend on the host's block size.
+    const float blockSec = static_cast<float>(numSamples / currentSampleRate);
+    const float attCoeff = 1.0f - std::exp(-blockSec / 0.010f);   // 10 ms rise
+    const float relCoeff = std::exp(-blockSec / 0.300f);          // 300 ms fall
 
-    // --- Global input gain ---
+    // Mono sum used for the history display.
+    const float* l = buffer.getReadPointer(0);
+    const float* r = numChannels >= 2 ? buffer.getReadPointer(1) : nullptr;
+
+    // --- Global input gain (ramped across the block to avoid zipper noise) ---
     const float inGain = juce::Decibels::decibelsToGain(inputGainParam->load());
-    if (!juce::approximatelyEqual(inGain, 1.0f))
-        buffer.applyGain(inGain);
+    if (!juce::approximatelyEqual(inGain, prevInputGain) || !juce::approximatelyEqual(inGain, 1.0f))
+        buffer.applyGainRamp(0, numSamples, prevInputGain, inGain);
+    prevInputGain = inGain;
 
     // --- Capture input + measure input level ---
     float inputPeak = 0.0f;
     for (int s = 0; s < numSamples; s++)
-    {
-        waveformInput.push(monoSample(s));
-        for (int ch = 0; ch < numChannels; ++ch)
-            inputPeak = juce::jmax(inputPeak, std::abs(buffer.getSample(ch, s)));
-    }
-    {
-        constexpr float kAtt = 0.10f, kRel = 0.97f;
-        inputEnvLinear = inputPeak > inputEnvLinear
-            ? kAtt * inputPeak + (1.0f - kAtt) * inputEnvLinear
-            : kRel * inputEnvLinear;
-        inputLevelDB.store(juce::Decibels::gainToDecibels(inputEnvLinear, -96.0f));
-    }
+        waveformInput.push(r ? (l[s] + r[s]) * 0.5f : l[s]);
+    for (int ch = 0; ch < numChannels; ++ch)
+        inputPeak = juce::jmax(inputPeak, buffer.getMagnitude(ch, 0, numSamples));
 
-    // --- Stage chain ---
+    inputEnvLinear = inputPeak > inputEnvLinear
+        ? inputEnvLinear + attCoeff * (inputPeak - inputEnvLinear)
+        : relCoeff * inputEnvLinear;
+    inputLevelDB.store(juce::Decibels::gainToDecibels(inputEnvLinear, -96.0f));
+
+    // --- Stage chain (stages past numStages are idled so their meters fall to zero) ---
     for (int i = 0; i < MAX_STAGES; i++)
     {
         syncStageParameters(i);
 
-        if (i < numStages)
-            stages[i].processBlock(buffer);
+        if (i >= numStages)
+            stages[i].setEnabled(false);
 
-        for (int s = 0; s < numSamples; s++)
-            waveformStages[i].push(monoSample(s));
+        stages[i].processBlock(buffer);
+
+        if (i < numStages)
+            for (int s = 0; s < numSamples; s++)
+                waveformStages[i].push(r ? (l[s] + r[s]) * 0.5f : l[s]);
     }
 
     // --- Global makeup gain ---
     const float mkGain = juce::Decibels::decibelsToGain(makeupGainParam->load());
-    if (!juce::approximatelyEqual(mkGain, 1.0f))
-        buffer.applyGain(mkGain);
+    if (!juce::approximatelyEqual(mkGain, prevMakeupGain) || !juce::approximatelyEqual(mkGain, 1.0f))
+        buffer.applyGainRamp(0, numSamples, prevMakeupGain, mkGain);
+    prevMakeupGain = mkGain;
 
     // --- Measure output level (after makeup gain) ---
-    {
-        float outputPeak = 0.0f;
-        for (int ch = 0; ch < numChannels; ++ch)
-            for (int s = 0; s < numSamples; ++s)
-                outputPeak = juce::jmax(outputPeak, std::abs(buffer.getSample(ch, s)));
+    float outputPeak = 0.0f;
+    for (int ch = 0; ch < numChannels; ++ch)
+        outputPeak = juce::jmax(outputPeak, buffer.getMagnitude(ch, 0, numSamples));
 
-        constexpr float kAtt = 0.10f, kRel = 0.97f;
-        outputEnvLinear = outputPeak > outputEnvLinear
-            ? kAtt * outputPeak + (1.0f - kAtt) * outputEnvLinear
-            : kRel * outputEnvLinear;
-        outputLevelDB.store(juce::Decibels::gainToDecibels(outputEnvLinear, -96.0f));
-    }
+    outputEnvLinear = outputPeak > outputEnvLinear
+        ? outputEnvLinear + attCoeff * (outputPeak - outputEnvLinear)
+        : relCoeff * outputEnvLinear;
+    outputLevelDB.store(juce::Decibels::gainToDecibels(outputEnvLinear, -96.0f));
 }
 
 // ---------------------------------------------------------------------------

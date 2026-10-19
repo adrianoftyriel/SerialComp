@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(SerialComp VERSION 0.3.0)
+project(SerialComp VERSION 0.1.0)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -16,7 +16,7 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(JUCE)
 
 juce_add_plugin(SerialComp
-    VERSION                     "0.3.0"
+    VERSION                     "${PROJECT_VERSION}"
     COMPANY_NAME                "James Wallace"
     BUNDLE_ID                   "com.svt.serialcomp"
     PLUGIN_MANUFACTURER_CODE    "SVTA"
